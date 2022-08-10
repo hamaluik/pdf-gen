@@ -1,0 +1,10 @@
+[package]
+name = "pdf-gen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pdf-writer = "0.6"
+ttf-parser = "0.15"
+chrono = "0.4"
+lipsum = "0.8"
