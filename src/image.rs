@@ -4,6 +4,7 @@ use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
 use pdf_writer::{Filter, Finish, PdfWriter};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use usvg::Tree;
 
 #[derive(Error, Debug)]
 pub enum ImageError {
@@ -12,21 +13,21 @@ pub enum ImageError {
 
     #[error(transparent)]
     Image(#[from] image::ImageError),
+
+    #[error(transparent)]
+    Svg(#[from] usvg::Error),
 }
 
-#[derive(Debug)]
 pub enum RasterImageType {
     DirectlyEmbeddableJpeg(PathBuf),
     Image(DynamicImage),
 }
 
-#[derive(Debug)]
 pub enum ImageType {
     Raster(RasterImageType),
-    SVG(DynamicImage),
+    SVG(Tree),
 }
 
-#[derive(Debug)]
 pub struct Image {
     pub image: ImageType,
     pub width: f32,
@@ -49,10 +50,31 @@ impl Image {
         };
 
         if is_svg {
-            todo!()
+            Self::new_svg_from_disk(path.to_owned())
         } else {
             Self::new_raster_from_disk(path.to_owned())
         }
+    }
+
+    pub fn new_svg_from_disk(path: PathBuf) -> Result<Image, ImageError> {
+        let data = std::fs::read(&path)?;
+        Self::new_svg(&data)
+    }
+
+    pub fn new_svg(data: &[u8]) -> Result<Image, ImageError> {
+        let opts = usvg::Options {
+            ..Default::default()
+        };
+        let tree = Tree::from_data(data, &opts.to_ref())?;
+        let size = tree.svg_node().size;
+        let width = size.width() as f32;
+        let height = size.height() as f32;
+
+        Ok(Image {
+            image: ImageType::SVG(tree),
+            width,
+            height,
+        })
     }
 
     pub fn new_raster_from_disk(path: PathBuf) -> Result<Image, ImageError> {
@@ -134,39 +156,47 @@ impl Image {
         image_index: usize,
         writer: &mut PdfWriter,
     ) -> Result<(), ImageError> {
-        let id = refs
-            .get(RefType::Image(image_index))
-            .expect("image id exists");
+        //let id = refs
+        //    .get(RefType::Image(image_index))
+        //    .expect("image id exists");
+        let id = refs.gen(RefType::Image(image_index));
 
-        // TODO: Svg!
+        match &self.image {
+            ImageType::Raster(_) => {
+                let encoded = self.encode_raster()?;
 
-        let encoded = self.encode_raster()?;
+                let mut image = writer.image_xobject(id, encoded.bytes.as_slice());
+                image.filter(encoded.filter);
+                image.width(self.width as i32);
+                image.height(self.height as i32);
+                image.color_space().device_rgb();
+                image.bits_per_component(8);
 
-        let mut image = writer.image_xobject(id, encoded.bytes.as_slice());
-        image.filter(encoded.filter);
-        image.width(self.width as i32);
-        image.height(self.height as i32);
-        image.color_space().device_rgb();
-        image.bits_per_component(8);
+                let mask_id = encoded
+                    .mask
+                    .as_ref()
+                    .map(|_| refs.gen(RefType::ImageMask(image_index)));
+                if let Some(mask_id) = &mask_id {
+                    image.s_mask(mask_id.clone());
+                }
 
-        let mask_id = encoded
-            .mask
-            .as_ref()
-            .map(|_| refs.gen(RefType::ImageMask(image_index)));
-        if let Some(mask_id) = &mask_id {
-            image.s_mask(mask_id.clone());
-        }
+                image.finish();
 
-        image.finish();
-
-        // add a transparency mask if we have one
-        if let Some(mask_id) = mask_id {
-            let mut s_mask =
-                writer.image_xobject(mask_id, encoded.mask.as_ref().unwrap().as_slice());
-            s_mask.width(self.width as i32);
-            s_mask.height(self.height as i32);
-            s_mask.color_space().device_gray();
-            s_mask.bits_per_component(8);
+                // add a transparency mask if we have one
+                if let Some(mask_id) = mask_id {
+                    let mut s_mask =
+                        writer.image_xobject(mask_id, encoded.mask.as_ref().unwrap().as_slice());
+                    s_mask.width(self.width as i32);
+                    s_mask.height(self.height as i32);
+                    s_mask.color_space().device_gray();
+                    s_mask.bits_per_component(8);
+                }
+            }
+            ImageType::SVG(tree) => {
+                let next_id =
+                    svg2pdf::convert_tree_into(tree, svg2pdf::Options::default(), writer, id);
+                refs.set_next_id(next_id);
+            }
         }
 
         Ok(())

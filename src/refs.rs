@@ -36,6 +36,11 @@ impl ObjectReferences {
         Ref::new(id)
     }
 
+    /// Warning: only do if you're sure you know what you're doing!
+    pub fn set_next_id(&mut self, id: Ref) {
+        self.next_id = id.get();
+    }
+
     pub fn get(&self, ref_type: RefType) -> Option<Ref> {
         self.refs.get(&ref_type).map(Clone::clone)
     }

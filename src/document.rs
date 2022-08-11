@@ -45,7 +45,6 @@ impl<'f> Document<'f> {
     }
 
     pub fn add_image(&mut self, image: Image) {
-        self.refs.gen(RefType::Image(self.images.len()));
         self.images.push(image);
     }
 
