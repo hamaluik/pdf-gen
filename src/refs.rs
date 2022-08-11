@@ -13,6 +13,8 @@ pub enum RefType {
     ToUnicode(usize),
     FontDescriptor(usize),
     FontData(usize),
+    Image(usize),
+    ImageMask(usize),
 }
 
 pub struct ObjectReferences {

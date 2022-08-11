@@ -1,5 +1,6 @@
 use crate::colour::Colour;
 use crate::font::Font;
+use crate::image::Image;
 use crate::refs::{ObjectReferences, RefType};
 use pdf_writer::Finish;
 use pdf_writer::{Name, PdfWriter, Rect};
@@ -19,13 +20,25 @@ pub struct SpanLayout {
     pub coords: (f32, f32),
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub struct ImageLayout {
+    pub image_index: usize,
+    pub position: Rect,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum PageContents {
+    Text(Vec<SpanLayout>),
+    Image(ImageLayout),
+}
+
 pub struct Page {
     /// The size of the page
     pub media_box: Rect,
     /// Where content can live, i.e. within the margins
     pub content_box: Rect,
     /// The laid out text
-    pub contents: Vec<SpanLayout>,
+    pub contents: Vec<PageContents>,
 }
 
 pub struct Margins {
@@ -84,7 +97,11 @@ impl Page {
     }
 
     pub fn add_span(&mut self, span: SpanLayout) {
-        self.contents.push(span);
+        self.contents.push(PageContents::Text(vec![span]));
+    }
+
+    pub fn add_image(&mut self, image: ImageLayout) {
+        self.contents.push(PageContents::Image(image));
     }
 
     pub fn baseline_start(&self, font: &Font, size: f32) -> (f32, f32) {
@@ -236,53 +253,76 @@ impl Page {
         if self.contents.is_empty() {
             return Vec::default();
         }
-
         let mut content: Vec<u8> = Vec::default();
-        let mut current_font: SpanFont = self.contents.first().unwrap().font;
-        let mut current_colour: Colour = self.contents.first().unwrap().colour;
 
-        write!(
-            &mut content,
-            "/F{} {} Tf\n",
-            current_font.index, current_font.size
-        )
-        .unwrap();
-        write!(
-            &mut content,
-            "{} {} {} rg\n",
-            current_colour.r, current_colour.g, current_colour.b
-        )
-        .unwrap();
+        for page_content in self.contents.iter() {
+            match page_content {
+                PageContents::Text(spans) => {
+                    write!(&mut content, "q\n").unwrap();
+                    let mut current_font: SpanFont = spans.first().unwrap().font;
+                    let mut current_colour: Colour = spans.first().unwrap().colour;
 
-        for span in self.contents.iter() {
-            if span.font != current_font {
-                current_font = span.font;
-                write!(
-                    &mut content,
-                    "/F{} {} Tf\n",
-                    current_font.index, current_font.size
-                )
-                .unwrap();
-            }
-            if span.colour != current_colour {
-                current_colour = span.colour;
-                write!(
-                    &mut content,
-                    "{} {} {} rg\n",
-                    current_colour.r, current_colour.g, current_colour.b
-                )
-                .unwrap();
-            }
+                    write!(
+                        &mut content,
+                        "/F{} {} Tf\n",
+                        current_font.index, current_font.size
+                    )
+                    .unwrap();
+                    write!(
+                        &mut content,
+                        "{} {} {} rg\n",
+                        current_colour.r, current_colour.g, current_colour.b
+                    )
+                    .unwrap();
 
-            write!(&mut content, "BT\n").unwrap();
-            write!(&mut content, "{} {} Td\n", span.coords.0, span.coords.1).unwrap();
-            write!(&mut content, "<").unwrap();
-            for ch in span.text.chars() {
-                write!(&mut content, "{:04x}", fonts[0].glyph_id(ch).unwrap()).unwrap();
+                    for span in spans.iter() {
+                        if span.font != current_font {
+                            current_font = span.font;
+                            write!(
+                                &mut content,
+                                "/F{} {} Tf\n",
+                                current_font.index, current_font.size
+                            )
+                            .unwrap();
+                        }
+                        if span.colour != current_colour {
+                            current_colour = span.colour;
+                            write!(
+                                &mut content,
+                                "{} {} {} rg\n",
+                                current_colour.r, current_colour.g, current_colour.b
+                            )
+                            .unwrap();
+                        }
+
+                        write!(&mut content, "BT\n").unwrap();
+                        write!(&mut content, "{} {} Td\n", span.coords.0, span.coords.1).unwrap();
+                        write!(&mut content, "<").unwrap();
+                        for ch in span.text.chars() {
+                            write!(&mut content, "{:04x}", fonts[0].glyph_id(ch).unwrap()).unwrap();
+                        }
+                        write!(&mut content, "> Tj\n").unwrap();
+                        write!(&mut content, "ET\n").unwrap();
+                    }
+                    write!(&mut content, "Q\n").unwrap();
+                }
+                PageContents::Image(image) => {
+                    write!(&mut content, "q\n").unwrap();
+                    write!(
+                        &mut content,
+                        "{} 0 0 {} {} {} cm\n",
+                        image.position.x2 - image.position.x1,
+                        image.position.y2 - image.position.y1,
+                        image.position.x1,
+                        image.position.y1
+                    )
+                    .unwrap();
+                    write!(&mut content, "/I{} Do\n", image.image_index).unwrap();
+                    write!(&mut content, "Q\n").unwrap();
+                }
             }
-            write!(&mut content, "> Tj\n").unwrap();
-            write!(&mut content, "ET\n").unwrap();
         }
+
         content
     }
 
@@ -291,6 +331,7 @@ impl Page {
         refs: &mut ObjectReferences,
         page_index: usize,
         fonts: &[Font],
+        images: &[Image],
         writer: &mut PdfWriter,
     ) {
         let id = refs.get(RefType::Page(page_index)).unwrap();
@@ -298,9 +339,25 @@ impl Page {
         page.media_box(self.media_box.clone());
         page.art_box(self.content_box.clone());
         page.parent(refs.get(RefType::PageTree).unwrap());
-        page.resources()
-            .fonts()
-            .pair(Name(b"F0"), refs.get(RefType::Font(0)).unwrap());
+
+        let mut resources = page.resources();
+        let mut resource_fonts = resources.fonts();
+        for (i, _) in fonts.iter().enumerate() {
+            resource_fonts.pair(
+                Name(format!("F{i}").as_bytes()),
+                refs.get(RefType::Font(i)).unwrap(),
+            );
+        }
+        resource_fonts.finish();
+        let mut resource_xobjects = resources.x_objects();
+        for (i, _) in images.iter().enumerate() {
+            resource_xobjects.pair(
+                Name(format!("I{i}").as_bytes()),
+                refs.get(RefType::Image(i)).unwrap(),
+            );
+        }
+        resource_xobjects.finish();
+        resources.finish();
 
         let content_id = refs.gen(RefType::ContentForPage(page_index));
         page.contents(content_id);

@@ -12,9 +12,9 @@ fn main() {
     doc.add_font(fira_mono);
     doc.info(
         Info::new()
-            .title("Lorem Ipsum")
+            .title("Lorem Ipsum Test")
             .author("Kenton Hamaluik")
-            .subject("Development Test")
+            .subject("Development Test / Example")
             .clone(),
     );
 

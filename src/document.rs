@@ -1,5 +1,6 @@
 use crate::{
     font::Font,
+    image::Image,
     info::Info,
     page::Page,
     refs::{ObjectReferences, RefType},
@@ -13,6 +14,7 @@ pub struct Document<'f> {
     pub pages: Vec<Page>,
     sorted_page_refs: Vec<Ref>,
     pub fonts: Vec<Font<'f>>,
+    pub images: Vec<Image>,
 }
 
 impl<'f> Document<'f> {
@@ -23,6 +25,7 @@ impl<'f> Document<'f> {
             pages: Vec::default(),
             sorted_page_refs: Vec::default(),
             fonts: Vec::default(),
+            images: Vec::default(),
         }
     }
 
@@ -41,6 +44,11 @@ impl<'f> Document<'f> {
         self.fonts.push(font);
     }
 
+    pub fn add_image(&mut self, image: Image) {
+        self.refs.gen(RefType::Image(self.images.len()));
+        self.images.push(image);
+    }
+
     pub fn write<W: Write>(self, mut w: W) -> std::io::Result<()> {
         let Document {
             mut refs,
@@ -48,6 +56,7 @@ impl<'f> Document<'f> {
             pages,
             sorted_page_refs,
             fonts,
+            images,
         } = self;
 
         let catalog_id = refs.gen(RefType::Catalog);
@@ -65,11 +74,21 @@ impl<'f> Document<'f> {
             .kids(sorted_page_refs);
 
         for (i, font) in fonts.iter().enumerate() {
-            font.write(&mut refs, i, &mut writer);
+            font.write(&mut refs, i, &mut writer); // TODO: error handling
+        }
+
+        for (i, image) in images.iter().enumerate() {
+            image.write(&mut refs, i, &mut writer).unwrap(); // TODO: error handling
         }
 
         for (i, page) in pages.iter().enumerate() {
-            page.write(&mut refs, i, fonts.as_slice(), &mut writer);
+            page.write(
+                &mut refs,
+                i,
+                fonts.as_slice(),
+                images.as_slice(),
+                &mut writer,
+            );
         }
 
         w.write_all(writer.finish().as_slice())
