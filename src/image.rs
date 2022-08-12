@@ -67,22 +67,7 @@ impl Image {
     /// will be used when rendering the PDF.
     ///
     /// Accepted file types match those from the [image](https://crates.io/crates/image)
-    /// crate:
-    /// | Format | Decoding |
-    /// | ------ | -------- |
-    /// | PNG    | All supported color types |
-    /// | JPEG   | Baseline and progressive |
-    /// | GIF    | Yes |
-    /// | BMP    | Yes |
-    /// | ICO    | Yes |
-    /// | TIFF   | Baseline(no fax support) + LZW + PackBits |
-    /// | WebP   | Yes |
-    /// | AVIF   | Only 8-bit |
-    /// | PNM    | PBM, PGM, PPM, standard PAM |
-    /// | DDS    | DXT1, DXT3, DXT5 |
-    /// | TGA    | Yes |
-    /// | OpenEXR  | Rgb32F, Rgba32F (no dwa compression) |
-    /// | farbfeld | Yes |
+    /// crate: PNG, JPEG, GIF, BMP, ICO, TIFF, WebP, AVIF, PNM, DDS, TGA, OpenEXR, farbfeld
     pub fn new_from_disk<P: AsRef<Path>>(path: P) -> Result<Image, PDFError> {
         let path = path.as_ref();
         let is_svg = if let Some(ext) = path.extension() {
@@ -125,22 +110,7 @@ impl Image {
     /// Creates a raster image from disk, assuming the file is a raster image.
     ///
     /// Accepted file types match those from the [image](https://crates.io/crates/image)
-    /// crate:
-    /// | Format | Decoding |
-    /// | ------ | -------- |
-    /// | PNG    | All supported color types |
-    /// | JPEG   | Baseline and progressive |
-    /// | GIF    | Yes |
-    /// | BMP    | Yes |
-    /// | ICO    | Yes |
-    /// | TIFF   | Baseline(no fax support) + LZW + PackBits |
-    /// | WebP   | Yes |
-    /// | AVIF   | Only 8-bit |
-    /// | PNM    | PBM, PGM, PPM, standard PAM |
-    /// | DDS    | DXT1, DXT3, DXT5 |
-    /// | TGA    | Yes |
-    /// | OpenEXR  | Rgb32F, Rgba32F (no dwa compression) |
-    /// | farbfeld | Yes |
+    /// crate: PNG, JPEG, GIF, BMP, ICO, TIFF, WebP, AVIF, PNM, DDS, TGA, OpenEXR, farbfeld
     pub fn new_raster_from_disk(path: PathBuf) -> Result<Image, PDFError> {
         let is_tga = if let Some(ext) = path.extension() {
             ext.to_ascii_lowercase() == *"tga"
@@ -176,22 +146,7 @@ impl Image {
     /// Creates a raster image from memory, assuming the data represents a raster image.
     ///
     /// Accepted file types match those from the [image](https://crates.io/crates/image)
-    /// crate:
-    /// | Format | Decoding |
-    /// | ------ | -------- |
-    /// | PNG    | All supported color types |
-    /// | JPEG   | Baseline and progressive |
-    /// | GIF    | Yes |
-    /// | BMP    | Yes |
-    /// | ICO    | Yes |
-    /// | TIFF   | Baseline(no fax support) + LZW + PackBits |
-    /// | WebP   | Yes |
-    /// | AVIF   | Only 8-bit |
-    /// | PNM    | PBM, PGM, PPM, standard PAM |
-    /// | DDS    | DXT1, DXT3, DXT5 |
-    /// | TGA    | Yes |
-    /// | OpenEXR  | Rgb32F, Rgba32F (no dwa compression) |
-    /// | farbfeld | Yes |
+    /// crate: PNG, JPEG, GIF, BMP, ICO, TIFF, WebP, AVIF, PNM, DDS, TGA, OpenEXR, farbfeld
     pub fn new_raster(image: DynamicImage) -> Result<Image, PDFError> {
         let width = image.width() as f32;
         let height = image.height() as f32;
