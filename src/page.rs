@@ -251,7 +251,13 @@ impl Page {
         page.finish();
 
         let rendered = self.render(fonts);
-        writer.stream(content_id, rendered.as_slice());
+        let compressed = miniz_oxide::deflate::compress_to_vec_zlib(
+            &rendered,
+            miniz_oxide::deflate::CompressionLevel::DefaultCompression as u8,
+        );
+        writer
+            .stream(content_id, compressed.as_slice())
+            .filter(pdf_writer::Filter::FlateDecode);
     }
 }
 

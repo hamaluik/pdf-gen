@@ -324,10 +324,12 @@ endcodespacerange
 
         map.push_str("endcmap CMapName currentdict /CMap defineresource pop end end\n");
 
-        /*let compressed = miniz_oxide::deflate::compress_to_vec(map.as_bytes(), 6);
+        let compressed = miniz_oxide::deflate::compress_to_vec_zlib(
+            map.as_bytes(),
+            miniz_oxide::deflate::CompressionLevel::DefaultCompression as u8,
+        );
         let mut stream = writer.stream(id, compressed.as_slice());
-        stream.filter(Filter::FlateDecode);*/
-        writer.stream(id, map.as_bytes());
+        stream.filter(pdf_writer::Filter::FlateDecode);
 
         id
     }
