@@ -47,7 +47,7 @@ impl ObjectReferences {
 
     pub(crate) fn gen(&mut self, ref_type: RefType) -> Ref {
         let id = self.new_id();
-        self.refs.insert(ref_type, id.clone());
+        self.refs.insert(ref_type, id);
         id
     }
 }

@@ -124,6 +124,7 @@ impl Page {
             .push(PageContents::RawContent(content.into_iter().collect()));
     }
 
+    #[allow(clippy::write_with_newline)]
     fn render(&self, fonts: &[Font]) -> Vec<u8> {
         if self.contents.is_empty() {
             return Vec::default();

@@ -86,7 +86,7 @@ impl Image {
     pub fn new_from_disk<P: AsRef<Path>>(path: P) -> Result<Image, PDFError> {
         let path = path.as_ref();
         let is_svg = if let Some(ext) = path.extension() {
-            ext.to_ascii_lowercase() == std::ffi::OsString::from("svg")
+            ext.to_ascii_lowercase() == *"svg"
         } else {
             false
         };
@@ -143,7 +143,7 @@ impl Image {
     /// | farbfeld | Yes |
     pub fn new_raster_from_disk(path: PathBuf) -> Result<Image, PDFError> {
         let is_tga = if let Some(ext) = path.extension() {
-            ext.to_ascii_lowercase() == std::ffi::OsString::from("tga")
+            ext.to_ascii_lowercase() == *"tga"
         } else {
             false
         };
@@ -257,7 +257,7 @@ impl Image {
                     .as_ref()
                     .map(|_| refs.gen(RefType::ImageMask(image_index)));
                 if let Some(mask_id) = &mask_id {
-                    image.s_mask(mask_id.clone());
+                    image.s_mask(*mask_id);
                 }
 
                 image.finish();

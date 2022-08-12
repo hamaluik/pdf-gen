@@ -10,7 +10,7 @@ fn main() {
     let fira_mono = include_bytes!("../assets/FiraMono-Regular.ttf");
     let fira_mono = Font::load(fira_mono).expect("can load font");
 
-    let mut doc = Document::new();
+    let mut doc = Document::default();
     doc.add_font(fira_mono);
     doc.set_info(
         Info::new()

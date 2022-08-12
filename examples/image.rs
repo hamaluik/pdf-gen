@@ -6,7 +6,7 @@ use pdf_gen::Rect;
 use pdf_gen::{ImageLayout, Page};
 
 fn main() {
-    let mut doc = Document::new();
+    let mut doc = Document::default();
     doc.set_info(
         Info::new()
             .title("Image Test")

@@ -9,7 +9,9 @@ use crate::{
 use pdf_writer::{PdfWriter, Ref};
 use std::io::Write;
 
-/// A document is the main object
+#[derive(Default)]
+/// A document is the main object that stores all the contents of the PDF
+/// then renders it out with a call to [Document::write]
 pub struct Document<'f> {
     pub info: Option<Info>,
     pub pages: Vec<Page>,
@@ -19,15 +21,6 @@ pub struct Document<'f> {
 }
 
 impl<'f> Document<'f> {
-    pub fn new() -> Document<'f> {
-        Document {
-            info: None,
-            pages: Vec::default(),
-            fonts: Vec::default(),
-            images: Vec::default(),
-        }
-    }
-
     /// Sets information about the document. If not provided, no information block will be
     /// written to the PDF
     pub fn set_info(&mut self, info: Info) {

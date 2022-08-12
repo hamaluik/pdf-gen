@@ -147,15 +147,9 @@ pub fn layout_text(
     'inputspans: while !text.is_empty() {
         let (span, colour) = text.remove(0);
         // replace tabs with spaces
-        let span = span.replace(
-            "\t",
-            std::iter::repeat(' ')
-                .take(TABSIZE)
-                .collect::<String>()
-                .as_str(),
-        );
+        let span = span.replace('\t', &" ".repeat(TABSIZE));
         // normalize newlines
-        let span = span.replace("\r\n", "\n").replace("\r", "\n");
+        let span = span.replace("\r\n", "\n").replace('\r', "\n");
 
         let mut current_span: SpanLayout = SpanLayout {
             text: "".into(),
