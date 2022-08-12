@@ -1,30 +1,38 @@
-use crate::refs::{ObjectReferences, RefType};
+use crate::{
+    refs::{ObjectReferences, RefType},
+    PDFError,
+};
 use pdf_writer::{
     types::{FontFlags, SystemInfo},
     Finish, Name, PdfWriter, Ref, Str,
 };
 use std::collections::HashMap;
-use thiserror::Error;
 use ttf_parser::Face;
 
-#[derive(Error, Debug)]
-pub enum FontError {
-    #[error(transparent)]
-    FaceParsingError(#[from] ttf_parser::FaceParsingError),
-}
-
+/// A parsed font object. Fonts can be TTF or OTF fonts, and will be embedded in their
+/// entirety in the generated PDF, so large fonts may dramatically increase the size of
+/// the generated PDF. Future versions will explore subsetting the fonts.
+///
+/// Currently, font lifetimes _must_ exceed document lifetimes in order to be properly
+/// embedded. This may change in the future.
+///
+/// Typically, fonts are referred to throughout user applications by their _index_ within
+/// the document itself, and not by any typed references
 pub struct Font<'f> {
     pub bytes: &'f [u8],
     pub face: Face<'f>,
 }
 
 impl<'f> Font<'f> {
-    pub fn load(bytes: &'f [u8]) -> Result<Font<'f>, FontError> {
+    /// Load a font from raw bytes, parsing the font and returning an error if the font
+    /// could not be parsed
+    pub fn load(bytes: &'f [u8]) -> Result<Font<'f>, PDFError> {
         let face = Face::from_slice(bytes, 0)?;
 
         Ok(Font { bytes, face })
     }
 
+    /// Obtain the full name of the font. Panics if the font does not have a name
     pub fn name(&self) -> String {
         self.face
             .names()
@@ -34,6 +42,7 @@ impl<'f> Font<'f> {
             .expect("font face has a name")
     }
 
+    /// Obtain the family name of the font. Panics if the font does not have a font family
     pub fn family(&self) -> String {
         self.face
             .names()
@@ -41,6 +50,21 @@ impl<'f> Font<'f> {
             .find(|name| name.name_id == ttf_parser::name_id::FAMILY && name.is_unicode())
             .and_then(|name| name.to_string())
             .expect("font face has a family")
+    }
+
+    /// Obtain the weight of the font. Numerical values generally map as follows:
+    ///
+    /// * 100: Thin (Hairline)
+    /// * 200: Extra Light (Ultra Light)
+    /// * 300: Light
+    /// * 400: Normal
+    /// * 500: Medium
+    /// * 600: Semi Bold (Demi Bold)
+    /// * 700: Bold
+    /// * 800: Extra Bold (Ultra Bold)
+    /// * 900: Black (Heavy)
+    pub fn weight(&self) -> u16 {
+        self.face.weight().to_number()
     }
 
     fn write_cid(

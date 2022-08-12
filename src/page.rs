@@ -1,41 +1,62 @@
 use crate::colour::Colour;
 use crate::font::Font;
 use crate::image::Image;
+use crate::layout::Margins;
 use crate::rect::Rect;
 use crate::refs::{ObjectReferences, RefType};
 use crate::units::*;
-use pdf_writer::Finish;
+use pdf_writer::{Content, Finish};
 use pdf_writer::{Name, PdfWriter};
 use std::io::Write;
 
-use self::pagesize::PageSize;
+pub use self::pagesize::PageSize;
 
+/// What font to use for a given span of text
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct SpanFont {
+    /// The font index, weakly referencing a specific font within the greater document
     pub index: usize,
+    /// The size of the text
     pub size: Pt,
 }
 
+/// A section of text to be laid out onto a page
 #[derive(Clone, PartialEq, Debug)]
 pub struct SpanLayout {
+    /// The actual text to print on the page
     pub text: String,
+    /// What font should be used to print the text
     pub font: SpanFont,
+    /// The colour of the span of text
     pub colour: Colour,
+    /// The coordinates of where the text should start on the page,
+    /// measured from the bottom-left corner of the page to the
+    /// horizontal beginning and baseline of the text
     pub coords: (Pt, Pt),
 }
 
+/// An image to be laid out onto a page
 #[derive(Clone, PartialEq, Debug)]
 pub struct ImageLayout {
+    /// Which image within the document to print
     pub image_index: usize,
+    /// Where the image should be laid out on the page, relative to
+    /// the bottom-left corner of the page
     pub position: Rect,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+/// The types of content that can be rendered on the page
 pub enum PageContents {
+    /// A block of text (broken into spans)
     Text(Vec<SpanLayout>),
+    /// An image
     Image(ImageLayout),
+    /// Raw content, typically rendered by [pdf_writer::Content]. The
+    /// content **MUST** be **UNCOMPRESSED**.
+    RawContent(Vec<u8>),
 }
 
+/// A page in the document
 pub struct Page {
     /// The size of the page
     pub media_box: Rect,
@@ -45,54 +66,13 @@ pub struct Page {
     pub contents: Vec<PageContents>,
 }
 
-pub struct Margins {
-    pub top: Pt,
-    pub right: Pt,
-    pub bottom: Pt,
-    pub left: Pt,
-}
-
-impl Margins {
-    pub fn trbl(top: Pt, right: Pt, bottom: Pt, left: Pt) -> Margins {
-        Margins {
-            top,
-            right,
-            bottom,
-            left,
-        }
-    }
-
-    pub fn all(value: Pt) -> Margins {
-        Margins {
-            top: value,
-            right: value,
-            bottom: value,
-            left: value,
-        }
-    }
-
-    pub fn symmetric(vertical: Pt, horizontal: Pt) -> Margins {
-        Margins {
-            top: vertical,
-            right: horizontal,
-            bottom: vertical,
-            left: horizontal,
-        }
-    }
-
-    pub fn empty() -> Margins {
-        Margins {
-            top: Pt(0.0),
-            right: Pt(0.0),
-            bottom: Pt(0.0),
-            left: Pt(0.0),
-        }
-    }
-}
-
 impl Page {
-    pub fn new(size: PageSize, margins: Margins) -> Page {
+    /// Create a new page with the given size. Margins can be specified, which will determine the
+    /// `ContentBox` property of the page in the resulting PDF. If margins are not specified, the
+    /// default margins (0 pt) are used.
+    pub fn new(size: PageSize, margins: Option<Margins>) -> Page {
         let (width, height) = size;
+        let margins = margins.unwrap_or_default();
 
         Page {
             media_box: Rect {
@@ -111,12 +91,37 @@ impl Page {
         }
     }
 
+    /// Add a span of text to the page, in the layering order that it was added
     pub fn add_span(&mut self, span: SpanLayout) {
         self.contents.push(PageContents::Text(vec![span]));
     }
 
+    /// Add an image to the page, in the layering order that it was added
     pub fn add_image(&mut self, image: ImageLayout) {
         self.contents.push(PageContents::Image(image));
+    }
+
+    /// Add arbitrary `pdf_writer::Content` to the page. Surrounds the content by the `q` and `Q`
+    /// operators to segregate the drawing content from other operations
+    ///
+    /// Note that fonts are referred to by name as `/Fi` where `i` is the font index
+    /// Note that image xobjects are referred to by name as `/Ii` where `i` is the image index
+    pub fn add_content(&mut self, content: Content) {
+        self.contents
+            .push(PageContents::RawContent(content.finish()));
+    }
+
+    /// Add content, rendering it yourself. Refer to the pdf specifications (pdf_reference_1-7)
+    /// for full information about how to render this.
+    ///
+    /// Note that fonts are referred to by name as `/Fi` where `i` is the font index
+    /// Note that image xobjects are referred to by name as `/Ii` where `i` is the image index
+    pub fn add_raw_content<I>(&mut self, content: I)
+    where
+        I: IntoIterator<Item = u8>,
+    {
+        self.contents
+            .push(PageContents::RawContent(content.into_iter().collect()));
     }
 
     fn render(&self, fonts: &[Font]) -> Vec<u8> {
@@ -138,12 +143,15 @@ impl Page {
                         current_font.index, current_font.size
                     )
                     .unwrap();
-                    write!(
-                        &mut content,
-                        "{} {} {} rg\n",
-                        current_colour.r, current_colour.g, current_colour.b
-                    )
-                    .unwrap();
+                    match current_colour {
+                        Colour::RGB { r, g, b } => {
+                            write!(&mut content, "{r} {g} {b} rg\n").unwrap()
+                        }
+                        Colour::CMYK { c, m, y, k } => {
+                            write!(&mut content, "{c} {m} {y} {k} k\n").unwrap()
+                        }
+                        Colour::Grey { g } => write!(&mut content, "{g} g\n").unwrap(),
+                    }
 
                     for span in spans.iter() {
                         if span.font != current_font {
@@ -157,12 +165,15 @@ impl Page {
                         }
                         if span.colour != current_colour {
                             current_colour = span.colour;
-                            write!(
-                                &mut content,
-                                "{} {} {} rg\n",
-                                current_colour.r, current_colour.g, current_colour.b
-                            )
-                            .unwrap();
+                            match current_colour {
+                                Colour::RGB { r, g, b } => {
+                                    write!(&mut content, "{r} {g} {b} rg\n").unwrap()
+                                }
+                                Colour::CMYK { c, m, y, k } => {
+                                    write!(&mut content, "{c} {m} {y} {k} k\n").unwrap()
+                                }
+                                Colour::Grey { g } => write!(&mut content, "{g} g\n").unwrap(),
+                            }
                         }
 
                         write!(&mut content, "BT\n").unwrap();
@@ -189,6 +200,11 @@ impl Page {
                     .unwrap();
                     write!(&mut content, "/I{} Do\n", image.image_index).unwrap();
                     write!(&mut content, "Q\n").unwrap();
+                }
+                PageContents::RawContent(c) => {
+                    write!(&mut content, "q\n").unwrap();
+                    content.write_all(c.as_slice()).unwrap();
+                    write!(&mut content, "\nQ\n").unwrap();
                 }
             }
         }
@@ -238,9 +254,11 @@ impl Page {
     }
 }
 
+/// Pre-defined page sizes for common usage
 pub mod pagesize {
     use crate::units::*;
 
+    /// The size of a page in points
     pub type PageSize = (Pt, Pt);
 
     pub const LETTER: (Pt, Pt) = (Pt(8.5 * 72.0), Pt(11.0 * 72.0));
@@ -249,4 +267,22 @@ pub mod pagesize {
     pub const LEGAL: (Pt, Pt) = (Pt(8.5 * 72.0), Pt(13.0 * 72.0));
     pub const TABLOID: (Pt, Pt) = (Pt(11.0 * 72.0), Pt(17.0 * 72.0));
     pub const LEDGER: (Pt, Pt) = (Pt(17.0 * 72.0), Pt(11.0 * 72.0));
+
+    pub const ANSI_A: (Pt, Pt) = (Pt(8.5 * 72.0), Pt(11.0 * 72.0));
+    pub const ANSI_B: (Pt, Pt) = (Pt(11.0 * 72.0), Pt(17.0 * 72.0));
+    pub const ANSI_C: (Pt, Pt) = (Pt(17.0 * 72.0), Pt(22.0 * 72.0));
+    pub const ANSI_D: (Pt, Pt) = (Pt(22.0 * 72.0), Pt(34.0 * 72.0));
+    pub const ANSI_E: (Pt, Pt) = (Pt(34.0 * 72.0), Pt(44.0 * 72.0));
+
+    pub const FOLIO: (Pt, Pt) = (Pt(12.0 * 72.0), Pt(19.0 * 72.0));
+    pub const QUARTO: (Pt, Pt) = (Pt(9.5 * 72.0), Pt(12.0 * 72.0));
+    pub const OCTAVO: (Pt, Pt) = (Pt(6.0 * 72.0), Pt(9.0 * 72.0));
+
+    pub const A0: (Pt, Pt) = (Pt(841.0 * 72.0 / 25.4), Pt(1189.0 * 72.0 / 25.4));
+    pub const A1: (Pt, Pt) = (Pt(594.0 * 72.0 / 25.4), Pt(841.0 * 72.0 / 25.4));
+    pub const A2: (Pt, Pt) = (Pt(420.0 * 72.0 / 25.4), Pt(594.0 * 72.0 / 25.4));
+    pub const A3: (Pt, Pt) = (Pt(297.0 * 72.0 / 25.4), Pt(420.0 * 72.0 / 25.4));
+    pub const A4: (Pt, Pt) = (Pt(210.0 * 72.0 / 25.4), Pt(297.0 * 72.0 / 25.4));
+    pub const A5: (Pt, Pt) = (Pt(148.0 * 72.0 / 25.4), Pt(210.0 * 72.0 / 25.4));
+    pub const A6: (Pt, Pt) = (Pt(105.0 * 72.0 / 25.4), Pt(148.0 * 72.0 / 25.4));
 }

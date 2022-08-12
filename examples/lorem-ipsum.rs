@@ -1,10 +1,10 @@
-use pdf_gen::colour::Colour;
-use pdf_gen::document::Document;
-use pdf_gen::font::Font;
-use pdf_gen::info::Info;
 use pdf_gen::layout;
-use pdf_gen::page::{Margins, Page, SpanFont, SpanLayout};
-use pdf_gen::units::*;
+use pdf_gen::Colour;
+use pdf_gen::Document;
+use pdf_gen::Font;
+use pdf_gen::Info;
+use pdf_gen::{layout::Margins, Page, SpanFont, SpanLayout};
+use pdf_gen::{In, Pt};
 
 fn main() {
     let fira_mono = include_bytes!("../assets/FiraMono-Regular.ttf");
@@ -23,15 +23,16 @@ fn main() {
     let mut text: Vec<(String, Colour)> = vec![
         (
             format!("{}\n{}\n", lipsum::lipsum(3), lipsum::lipsum(4)),
-            Colour {
-                r: 0.0,
-                g: 0.0,
-                b: 0.0,
+            Colour::CMYK {
+                c: 1.0,
+                m: 0.0,
+                y: 0.0,
+                k: 0.0,
             },
         ),
         (
             lipsum::lipsum(256),
-            Colour {
+            Colour::RGB {
                 r: 0.25,
                 g: 0.25,
                 b: 0.25,
@@ -41,16 +42,10 @@ fn main() {
 
     let mut page_index = 0;
     while !text.is_empty() {
-        // add a 0.5in gutter
-        let mut margins = Margins::all(In(0.5).into());
-        if page_index % 2 == 0 {
-            margins.left += In(0.5).into();
-        } else {
-            margins.right += In(0.5).into();
-        }
+        let margins = Margins::all(In(0.5).into()).with_gutter(In(0.5).into(), page_index);
 
-        let page_size = pdf_gen::page::pagesize::HALF_LETTER;
-        let mut page = Page::new(page_size, margins);
+        let page_size = pdf_gen::pagesize::HALF_LETTER;
+        let mut page = Page::new(page_size, Some(margins));
         let start = layout::baseline_start(&page, &doc.fonts[0], Pt(16.0));
         let bbox = page.content_box.clone();
         layout::layout_text(&doc, &mut page, start, 0, Pt(16.0), &mut text, bbox);
@@ -68,11 +63,7 @@ fn main() {
                 index: 0,
                 size: Pt(10.0),
             },
-            colour: Colour {
-                r: 0.5,
-                g: 0.5,
-                b: 0.5,
-            },
+            colour: Colour::Grey { g: 0.5 },
             coords: (px, In(0.25).into()),
         });
 

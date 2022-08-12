@@ -4,19 +4,13 @@ use crate::{
     info::Info,
     page::Page,
     refs::{ObjectReferences, RefType},
+    PDFError,
 };
 use pdf_writer::{PdfWriter, Ref};
 use std::io::Write;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum DocumentError {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-}
-
+/// A document is the main object
 pub struct Document<'f> {
-    pub(crate) refs: ObjectReferences,
     pub info: Option<Info>,
     pub pages: Vec<Page>,
     //sorted_page_refs: Vec<Ref>,
@@ -27,42 +21,66 @@ pub struct Document<'f> {
 impl<'f> Document<'f> {
     pub fn new() -> Document<'f> {
         Document {
-            refs: ObjectReferences::new(),
             info: None,
             pages: Vec::default(),
-            //sorted_page_refs: Vec::default(),
             fonts: Vec::default(),
             images: Vec::default(),
         }
     }
 
+    /// Sets information about the document. If not provided, no information block will be
+    /// written to the PDF
     pub fn set_info(&mut self, info: Info) {
         self.info = Some(info);
     }
 
-    pub fn add_page(&mut self, page: Page) {
-        //let id = self.refs.gen(RefType::Page(self.pages.len()));
+    /// Add a page to the document, returning the index of that page within the document.
+    /// This index can be used to refer to the page if needed, provided that you don't
+    /// remove or reorder the pages in the document.
+    pub fn add_page(&mut self, page: Page) -> usize {
         self.pages.push(page);
-        //self.sorted_page_refs.push(id);
+        self.pages.len() - 1
     }
 
-    pub fn add_font(&mut self, font: Font<'f>) {
+    /// Add a font to the document structure. Note that fonts are stored "globally" within
+    /// the document, such that any page can access it by referring to it by its index /
+    /// reference. The returned value is the index of the font, which is valid so long as
+    /// you don't ever remove or reorder fonts from / in the document.
+    pub fn add_font(&mut self, font: Font<'f>) -> usize {
         self.fonts.push(font);
+        self.fonts.len() - 1
     }
 
-    pub fn add_image(&mut self, image: Image) {
+    /// Add an image to the document structure. Note that images are stored "globally"
+    /// within the document, such that any page can access and re-use images by referring
+    /// to it by its its / reference. The returned value is the index of the image, which
+    /// is valid so long as you don't ever remove or reorder images from / in the document.
+    pub fn add_image(&mut self, image: Image) -> usize {
         self.images.push(image);
+        self.images.len() - 1
     }
 
-    pub fn write<W: Write>(self, mut w: W) -> Result<(), DocumentError> {
+    /// Write the entire document to the writer. Note: although this can write to arbitrary
+    /// streams, the entire document is "rendered" in memory first. If you have a very large
+    /// document, this could allocate a significant amount of memory. This limitation is due
+    /// to the underlying pdf-writer implementation, which may be removed in the future.
+    ///
+    /// Until `write` is called, all references are un-resolved, so pages, fonts, images, etc
+    /// can be added / edited / reordered / removed as you like, provided you keep track of
+    /// references in your page contents yourself (i.e., if you have 2 fonts and decided to
+    /// change the order of them before writing, then you should update all font_index
+    /// references on all pages to reflect the change). Calling `write` will automatically
+    /// generate PDF objects and corresponding references to those objects.
+    pub fn write<W: Write>(self, mut w: W) -> Result<(), PDFError> {
         let Document {
-            mut refs,
             info,
             pages,
             //sorted_page_refs,
             fonts,
             images,
         } = self;
+
+        let mut refs = ObjectReferences::new();
 
         let catalog_id = refs.gen(RefType::Catalog);
         let page_tree_id = refs.gen(RefType::PageTree);
