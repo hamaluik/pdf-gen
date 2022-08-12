@@ -7,12 +7,19 @@ use crate::{
 };
 use pdf_writer::{PdfWriter, Ref};
 use std::io::Write;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum DocumentError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
 
 pub struct Document<'f> {
-    pub refs: ObjectReferences,
+    pub(crate) refs: ObjectReferences,
     pub info: Option<Info>,
     pub pages: Vec<Page>,
-    sorted_page_refs: Vec<Ref>,
+    //sorted_page_refs: Vec<Ref>,
     pub fonts: Vec<Font<'f>>,
     pub images: Vec<Image>,
 }
@@ -23,24 +30,23 @@ impl<'f> Document<'f> {
             refs: ObjectReferences::new(),
             info: None,
             pages: Vec::default(),
-            sorted_page_refs: Vec::default(),
+            //sorted_page_refs: Vec::default(),
             fonts: Vec::default(),
             images: Vec::default(),
         }
     }
 
-    pub fn info(&mut self, info: Info) {
+    pub fn set_info(&mut self, info: Info) {
         self.info = Some(info);
     }
 
     pub fn add_page(&mut self, page: Page) {
-        let id = self.refs.gen(RefType::Page(self.pages.len()));
+        //let id = self.refs.gen(RefType::Page(self.pages.len()));
         self.pages.push(page);
-        self.sorted_page_refs.push(id);
+        //self.sorted_page_refs.push(id);
     }
 
     pub fn add_font(&mut self, font: Font<'f>) {
-        self.refs.gen(RefType::Font(self.fonts.len()));
         self.fonts.push(font);
     }
 
@@ -48,12 +54,12 @@ impl<'f> Document<'f> {
         self.images.push(image);
     }
 
-    pub fn write<W: Write>(self, mut w: W) -> std::io::Result<()> {
+    pub fn write<W: Write>(self, mut w: W) -> Result<(), DocumentError> {
         let Document {
             mut refs,
             info,
             pages,
-            sorted_page_refs,
+            //sorted_page_refs,
             fonts,
             images,
         } = self;
@@ -67,10 +73,17 @@ impl<'f> Document<'f> {
         }
         writer.catalog(catalog_id).pages(page_tree_id);
 
+        let page_refs: Vec<Ref> = pages
+            .iter()
+            .enumerate()
+            .map(|(i, _)| refs.gen(RefType::Page(i)))
+            .collect();
+
         writer
             .pages(page_tree_id)
-            .count(sorted_page_refs.len() as i32)
-            .kids(sorted_page_refs);
+            //.count(sorted_page_refs.len() as i32)
+            .count(pages.len() as i32)
+            .kids(page_refs);
 
         for (i, font) in fonts.iter().enumerate() {
             font.write(&mut refs, i, &mut writer); // TODO: error handling
@@ -90,6 +103,6 @@ impl<'f> Document<'f> {
             );
         }
 
-        w.write_all(writer.finish().as_slice())
+        w.write_all(writer.finish().as_slice()).map_err(Into::into)
     }
 }

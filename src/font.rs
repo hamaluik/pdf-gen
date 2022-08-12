@@ -1,10 +1,17 @@
 use crate::refs::{ObjectReferences, RefType};
 use pdf_writer::{
     types::{FontFlags, SystemInfo},
-    Finish, Name, PdfWriter, Rect, Ref, Str,
+    Finish, Name, PdfWriter, Ref, Str,
 };
 use std::collections::HashMap;
+use thiserror::Error;
 use ttf_parser::Face;
+
+#[derive(Error, Debug)]
+pub enum FontError {
+    #[error(transparent)]
+    FaceParsingError(#[from] ttf_parser::FaceParsingError),
+}
 
 pub struct Font<'f> {
     pub bytes: &'f [u8],
@@ -12,7 +19,7 @@ pub struct Font<'f> {
 }
 
 impl<'f> Font<'f> {
-    pub fn load(bytes: &'f [u8]) -> Result<Font<'f>, ttf_parser::FaceParsingError> {
+    pub fn load(bytes: &'f [u8]) -> Result<Font<'f>, FontError> {
         let face = Face::from_slice(bytes, 0)?;
 
         Ok(Font { bytes, face })
@@ -164,7 +171,7 @@ impl<'f> Font<'f> {
         descriptor.flags(flags);
 
         let scaling = 1000.0 / self.face.units_per_em() as f32;
-        descriptor.bbox(Rect {
+        descriptor.bbox(pdf_writer::Rect {
             x1: 0.0,
             y1: 0.0,
             x2: sum_width as f32 * scaling,
@@ -301,11 +308,16 @@ endcodespacerange
         id
     }
 
-    pub fn write(&self, refs: &mut ObjectReferences, font_index: usize, writer: &mut PdfWriter) {
+    pub(crate) fn write(
+        &self,
+        refs: &mut ObjectReferences,
+        font_index: usize,
+        writer: &mut PdfWriter,
+    ) {
+        let font_id = refs.gen(RefType::Font(font_index));
         let cid_font_id = self.write_cid(refs, font_index, writer);
         let to_unicode_id = self.write_to_unicode(refs, font_index, writer);
 
-        let font_id = refs.get(RefType::Font(font_index)).unwrap();
         let mut font = writer.type0_font(font_id);
         font.base_font(Name(format!("F{font_index}").as_bytes()));
         font.encoding_predefined(Name(b"Identity-H"));

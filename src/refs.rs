@@ -2,7 +2,7 @@ use pdf_writer::Ref;
 use std::collections::HashMap;
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
-pub enum RefType {
+pub(crate) enum RefType {
     Catalog,
     Info,
     PageTree,
@@ -17,13 +17,13 @@ pub enum RefType {
     ImageMask(usize),
 }
 
-pub struct ObjectReferences {
+pub(crate) struct ObjectReferences {
     refs: HashMap<RefType, Ref>,
     next_id: i32,
 }
 
 impl ObjectReferences {
-    pub fn new() -> ObjectReferences {
+    pub(crate) fn new() -> ObjectReferences {
         ObjectReferences {
             refs: HashMap::new(),
             next_id: 3,
@@ -37,21 +37,17 @@ impl ObjectReferences {
     }
 
     /// Warning: only do if you're sure you know what you're doing!
-    pub fn set_next_id(&mut self, id: Ref) {
+    pub(crate) fn set_next_id(&mut self, id: Ref) {
         self.next_id = id.get();
     }
 
-    pub fn get(&self, ref_type: RefType) -> Option<Ref> {
+    pub(crate) fn get(&self, ref_type: RefType) -> Option<Ref> {
         self.refs.get(&ref_type).map(Clone::clone)
     }
 
-    pub fn gen(&mut self, ref_type: RefType) -> Ref {
+    pub(crate) fn gen(&mut self, ref_type: RefType) -> Ref {
         let id = self.new_id();
         self.refs.insert(ref_type, id.clone());
         id
-    }
-
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, RefType, Ref> {
-        self.refs.iter()
     }
 }

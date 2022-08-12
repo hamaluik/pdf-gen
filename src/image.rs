@@ -150,15 +150,12 @@ impl Image {
         }
     }
 
-    pub fn write(
+    pub(crate) fn write(
         &self,
         refs: &mut ObjectReferences,
         image_index: usize,
         writer: &mut PdfWriter,
     ) -> Result<(), ImageError> {
-        //let id = refs
-        //    .get(RefType::Image(image_index))
-        //    .expect("image id exists");
         let id = refs.gen(RefType::Image(image_index));
 
         match &self.image {

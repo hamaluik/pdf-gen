@@ -2,7 +2,9 @@ use pdf_gen::colour::Colour;
 use pdf_gen::document::Document;
 use pdf_gen::font::Font;
 use pdf_gen::info::Info;
+use pdf_gen::layout;
 use pdf_gen::page::{Margins, Page, SpanFont, SpanLayout};
+use pdf_gen::units::*;
 
 fn main() {
     let fira_mono = include_bytes!("../assets/FiraMono-Regular.ttf");
@@ -10,7 +12,7 @@ fn main() {
 
     let mut doc = Document::new();
     doc.add_font(fira_mono);
-    doc.info(
+    doc.set_info(
         Info::new()
             .title("Lorem Ipsum Test")
             .author("Kenton Hamaluik")
@@ -40,22 +42,23 @@ fn main() {
     let mut page_index = 0;
     while !text.is_empty() {
         // add a 0.5in gutter
-        let mut margins = Margins::all(0.5 * 72.0);
+        let mut margins = Margins::all(In(0.5).into());
         if page_index % 2 == 0 {
-            margins.left += 0.5 * 72.0;
+            margins.left += In(0.5).into();
         } else {
-            margins.right += 0.5 * 72.0;
+            margins.right += In(0.5).into();
         }
 
-        let mut page = Page::new(5.5 * 72.0, 8.5 * 72.0, margins);
-        let start = page.baseline_start(&doc.fonts[0], 16.0);
+        let page_size = pdf_gen::page::pagesize::HALF_LETTER;
+        let mut page = Page::new(page_size, margins);
+        let start = layout::baseline_start(&page, &doc.fonts[0], Pt(16.0));
         let bbox = page.content_box.clone();
-        page.layout_text(start, (0, &doc.fonts[0], 16.0), &mut text, bbox);
+        layout::layout_text(&doc, &mut page, start, 0, Pt(16.0), &mut text, bbox);
 
         // add a page number!
         let page_number_text = format!("Page {}", page_index + 1);
         let px = if page_index % 2 == 0 {
-            page.content_box.x2 - Page::width_of_text(&page_number_text, &doc.fonts[0], 10.0)
+            page.content_box.x2 - layout::width_of_text(&page_number_text, &doc.fonts[0], Pt(10.0))
         } else {
             page.content_box.x1
         };
@@ -63,14 +66,14 @@ fn main() {
             text: page_number_text,
             font: SpanFont {
                 index: 0,
-                size: 10.0,
+                size: Pt(10.0),
             },
             colour: Colour {
                 r: 0.5,
                 g: 0.5,
                 b: 0.5,
             },
-            coords: (px, 0.25 * 72.0),
+            coords: (px, In(0.25).into()),
         });
 
         doc.add_page(page);

@@ -34,7 +34,7 @@ impl Info {
         self
     }
 
-    pub fn write(&self, refs: &mut ObjectReferences, writer: &mut PdfWriter) {
+    pub(crate) fn write(&self, refs: &mut ObjectReferences, writer: &mut PdfWriter) {
         let id = refs.gen(RefType::Info);
         let mut info = writer.document_info(id);
 
