@@ -20,7 +20,7 @@ fn main() {
             .clone(),
     );
 
-    let mut text: Vec<(String, Colour)> = vec![
+    let mut text: Vec<(String, Colour, SpanFont)> = vec![
         (
             format!("{}\n{}\n", lipsum::lipsum(3), lipsum::lipsum(4)),
             Colour::CMYK {
@@ -29,6 +29,10 @@ fn main() {
                 y: 0.0,
                 k: 0.0,
             },
+            SpanFont {
+                index: 0,
+                size: Pt(16.0),
+            },
         ),
         (
             lipsum::lipsum(256),
@@ -36,6 +40,10 @@ fn main() {
                 r: 0.25,
                 g: 0.25,
                 b: 0.25,
+            },
+            SpanFont {
+                index: 0,
+                size: Pt(16.0),
             },
         ),
     ];
@@ -48,7 +56,7 @@ fn main() {
         let mut page = Page::new(page_size, Some(margins));
         let start = layout::baseline_start(&page, &doc.fonts[0], Pt(16.0));
         let bbox = page.content_box.clone();
-        layout::layout_text(&doc, &mut page, start, 0, Pt(16.0), &mut text, bbox);
+        layout::layout_text(&doc, &mut page, start, &mut text, In(0.0).into(), bbox);
 
         // add a page number!
         let page_number_text = format!("Page {}", page_index + 1);

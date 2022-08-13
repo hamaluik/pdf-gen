@@ -1,6 +1,6 @@
 use crate::{
     refs::{ObjectReferences, RefType},
-    PDFError,
+    PDFError, Pt,
 };
 use pdf_writer::{
     types::{FontFlags, SystemInfo},
@@ -50,6 +50,35 @@ impl<'f> Font<'f> {
             .find(|name| name.name_id == ttf_parser::name_id::FAMILY && name.is_unicode())
             .and_then(|name| name.to_string())
             .expect("font face has a family")
+    }
+
+    /// Calculate the ascent (distance from the baseline to the top of the font) for the given font size
+    pub fn ascent(&self, size: Pt) -> Pt {
+        let scaling: Pt = size / self.face.units_per_em() as f32;
+        scaling * self.face.ascender() as f32
+    }
+
+    /// Calculate the descent (distance from the baseline to the bottom of the font) for the given font size.
+    /// Note: this is usually negative
+    pub fn descent(&self, size: Pt) -> Pt {
+        let scaling: Pt = size / self.face.units_per_em() as f32;
+        scaling * self.face.descender() as f32
+    }
+
+    /// Calculate the leading (extra space between lines) for the given font size
+    pub fn leading(&self, size: Pt) -> Pt {
+        let scaling: Pt = size / self.face.units_per_em() as f32;
+        scaling * self.face.line_gap() as f32
+    }
+
+    /// Calculate the default line height of the font for the given size. The returned value is
+    /// how much to vertically offset a second row of text below a first row of text.
+    pub fn line_height(&self, size: Pt) -> Pt {
+        let scaling: Pt = size / self.face.units_per_em() as f32;
+        let leading: Pt = scaling * self.face.line_gap() as f32;
+        let ascent: Pt = scaling * self.face.ascender() as f32;
+        let descent: Pt = scaling * self.face.descender() as f32;
+        leading + ascent - descent
     }
 
     /// Obtain the weight of the font. Numerical values generally map as follows:

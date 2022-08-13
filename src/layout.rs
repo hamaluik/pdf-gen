@@ -122,20 +122,13 @@ pub fn layout_text(
     document: &Document,
     page: &mut Page,
     start: (Pt, Pt),
-    font_index: usize,
-    font_size: Pt,
-    text: &mut Vec<(String, Colour)>,
+    text: &mut Vec<(String, Colour, SpanFont)>,
+    wrap_offset: Pt,
     bounding_box: Rect,
 ) -> (Pt, Pt) {
     if text.is_empty() {
         return start;
     }
-
-    let scaling: Pt = font_size / document.fonts[font_index].face.units_per_em() as f32;
-    let leading: Pt = scaling * document.fonts[font_index].face.line_gap() as f32;
-    let ascent: Pt = scaling * document.fonts[font_index].face.ascender() as f32;
-    let descent: Pt = scaling * document.fonts[font_index].face.descender() as f32;
-    let line_gap: Pt = leading + ascent - descent;
 
     const TABSIZE: usize = 4;
 
@@ -145,7 +138,18 @@ pub fn layout_text(
     let mut spans: Vec<SpanLayout> = Vec::with_capacity(text.len());
 
     'inputspans: while !text.is_empty() {
-        let (span, colour) = text.remove(0);
+        let (span, colour, font) = text.remove(0);
+        let SpanFont {
+            index: font_index,
+            size: font_size,
+        } = font;
+
+        let scaling: Pt = font_size / document.fonts[font_index].face.units_per_em() as f32;
+        let leading: Pt = scaling * document.fonts[font_index].face.line_gap() as f32;
+        let ascent: Pt = scaling * document.fonts[font_index].face.ascender() as f32;
+        let descent: Pt = scaling * document.fonts[font_index].face.descender() as f32;
+        let line_gap: Pt = leading + ascent - descent;
+
         // replace tabs with spaces
         let span = span.replace('\t', &" ".repeat(TABSIZE));
         // normalize newlines
@@ -166,7 +170,17 @@ pub fn layout_text(
                 // collect what's left and push it to the front of the queue
                 let remaining: String = span.chars().skip(ci + 1).collect();
                 if !remaining.is_empty() {
-                    text.insert(0, (remaining, colour));
+                    text.insert(
+                        0,
+                        (
+                            remaining,
+                            colour,
+                            SpanFont {
+                                index: font_index,
+                                size: font_size,
+                            },
+                        ),
+                    );
                 }
 
                 // move to the next line
@@ -189,9 +203,11 @@ pub fn layout_text(
                     .unwrap_or_default() as f32;
 
             if x + hadv >= bounding_box.x2 {
+                // stop the current span
                 spans.push(current_span.clone());
 
-                x = start.0 + hadv;
+                // start a new span on the next line
+                x = start.0 + wrap_offset;
                 y -= line_gap;
 
                 // check if we're overflowing on the bottom
@@ -200,17 +216,29 @@ pub fn layout_text(
                     // collect what's left of our current input span
                     let remaining: String = span.chars().skip(ci).collect();
                     if !remaining.is_empty() {
-                        text.insert(0, (remaining, colour));
+                        text.insert(
+                            0,
+                            (
+                                remaining,
+                                colour,
+                                SpanFont {
+                                    index: font_index,
+                                    size: font_size,
+                                },
+                            ),
+                        );
                     }
 
                     spans.push(current_span.clone());
                     break 'inputspans;
                 } else {
-                    // not overflowing the bottom yet
+                    // not overflowing the bottom yet,
                     current_span.text.clear();
                     current_span.text.push(ch);
-                    current_span.coords.0 = start.0;
+                    current_span.coords.0 = x;
                     current_span.coords.1 = y;
+
+                    x += hadv;
                 }
             } else {
                 current_span.text.push(ch);
