@@ -187,8 +187,31 @@ pub fn layout_text(
                 x = start.0;
                 y -= line_gap;
 
-                // finish off our current span
-                break 'chars;
+                // check if we would now overflow on the bottom
+                if y < bounding_box.y1 + descent {
+                    // yup, we're going to overflow. That's okay, just return our leftovers
+                    // collect what's left of our current input span
+                    let remaining: String = span.chars().skip(ci).collect();
+                    if !remaining.is_empty() {
+                        text.insert(
+                            0,
+                            (
+                                remaining,
+                                colour,
+                                SpanFont {
+                                    index: font_index,
+                                    size: font_size,
+                                },
+                            ),
+                        );
+                    }
+
+                    spans.push(current_span.clone());
+                    break 'inputspans;
+                } else {
+                    // finish off our current span
+                    break 'chars;
+                }
             }
 
             let gid = document.fonts[font_index]
