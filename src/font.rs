@@ -143,7 +143,7 @@ impl<'f> Font<'f> {
         id_widths.sort_by_key(|(id, _)| *id);
 
         // TODO: compress with ranges as well
-        let first = id_widths.first().unwrap();
+        let first = id_widths.first().expect("font has at least 1 glyph in it");
         let mut start_cid: u16 = (*first).0;
         let mut current_widths: Vec<f32> = vec![(*first).1];
         for (cid, width) in id_widths.into_iter().skip(1) {
@@ -206,6 +206,7 @@ impl<'f> Font<'f> {
             .max()
             .unwrap_or_default();
         let sum_width: usize = gids_augmented.values().map(|&(_, (w, _))| w as usize).sum();
+        let avg_width = sum_width as f32 / gids_augmented.len() as f32;
 
         let id = refs.gen(RefType::FontDescriptor(font_index));
 
@@ -240,14 +241,20 @@ impl<'f> Font<'f> {
                 .map(|h| h as f32 * scaling)
                 .unwrap_or(1000.0),
         );
-        //descriptor.x_height(todo!());
+        descriptor.x_height(
+            self.face
+                .x_height()
+                .unwrap_or_else(|| self.face.capital_height().unwrap_or_default())
+                as f32
+                * scaling,
+        );
         //descriptor.stem_v(todo!());
         // TODO: how to get this?
         descriptor.stem_v(80.0);
         //descriptor.stem_h(todo!());
-        //descriptor.avg_width(todo!());
+        descriptor.avg_width(avg_width * scaling);
         descriptor.max_width(max_width as f32 * scaling);
-        //descriptor.missing_width(todo!());
+        descriptor.missing_width(max_width as f32 * scaling);
 
         descriptor.font_file2(font_data_stream_id);
 
@@ -382,5 +389,9 @@ endcodespacerange
 
     pub fn glyph_id(&self, ch: char) -> Option<u16> {
         self.face.glyph_index(ch).map(|i| i.0)
+    }
+
+    pub fn replacement_glyph_id(&self) -> Option<u16> {
+        self.face.glyph_index('\u{FFFD}').map(|i| i.0)
     }
 }

@@ -219,6 +219,7 @@ impl Image {
 
                 // add a transparency mask if we have one
                 if let Some(mask_id) = mask_id {
+                    // unwrap will always be safe as the mask id is mapped from mask to start with
                     let mut s_mask =
                         writer.image_xobject(mask_id, encoded.mask.as_ref().unwrap().as_slice());
                     s_mask.width(self.width as i32);

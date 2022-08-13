@@ -217,7 +217,12 @@ pub fn layout_text(
             let gid = document.fonts[font_index]
                 .face
                 .glyph_index(ch)
-                .expect("font contains glyph for char");
+                .unwrap_or_else(|| {
+                    document.fonts[font_index]
+                        .face
+                        .glyph_index('\u{FFFD}')
+                        .expect("Font has a replacement glyph")
+                });
 
             let hadv = scaling
                 * document.fonts[font_index]

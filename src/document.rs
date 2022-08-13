@@ -97,11 +97,11 @@ impl<'f> Document<'f> {
             .kids(page_refs);
 
         for (i, font) in fonts.iter().enumerate() {
-            font.write(&mut refs, i, &mut writer); // TODO: error handling
+            font.write(&mut refs, i, &mut writer);
         }
 
         for (i, image) in images.iter().enumerate() {
-            image.write(&mut refs, i, &mut writer).unwrap(); // TODO: error handling
+            image.write(&mut refs, i, &mut writer)?;
         }
 
         for (i, page) in pages.iter().enumerate() {
@@ -111,7 +111,7 @@ impl<'f> Document<'f> {
                 fonts.as_slice(),
                 images.as_slice(),
                 &mut writer,
-            );
+            )?;
         }
 
         w.write_all(writer.finish().as_slice()).map_err(Into::into)

@@ -4,7 +4,7 @@ use crate::image::Image;
 use crate::layout::Margins;
 use crate::rect::Rect;
 use crate::refs::{ObjectReferences, RefType};
-use crate::units::*;
+use crate::{units::*, PDFError};
 use pdf_writer::{Content, Finish};
 use pdf_writer::{Name, PdfWriter};
 use std::io::Write;
@@ -125,16 +125,21 @@ impl Page {
     }
 
     #[allow(clippy::write_with_newline)]
-    fn render(&self, fonts: &[Font]) -> Vec<u8> {
+    fn render(&self, fonts: &[Font]) -> Result<Vec<u8>, std::io::Error> {
         if self.contents.is_empty() {
-            return Vec::default();
+            return Ok(Vec::default());
         }
         let mut content: Vec<u8> = Vec::default();
 
-        for page_content in self.contents.iter() {
+        'contents: for page_content in self.contents.iter() {
             match page_content {
                 PageContents::Text(spans) => {
-                    write!(&mut content, "q\n").unwrap();
+                    if spans.is_empty() {
+                        continue 'contents;
+                    }
+
+                    write!(&mut content, "q\n")?;
+                    // unwrap is safe, as we know spans isn't empty
                     let mut current_font: SpanFont = spans.first().unwrap().font;
                     let mut current_colour: Colour = spans.first().unwrap().colour;
 
@@ -142,16 +147,11 @@ impl Page {
                         &mut content,
                         "/F{} {} Tf\n",
                         current_font.index, current_font.size
-                    )
-                    .unwrap();
+                    )?;
                     match current_colour {
-                        Colour::RGB { r, g, b } => {
-                            write!(&mut content, "{r} {g} {b} rg\n").unwrap()
-                        }
-                        Colour::CMYK { c, m, y, k } => {
-                            write!(&mut content, "{c} {m} {y} {k} k\n").unwrap()
-                        }
-                        Colour::Grey { g } => write!(&mut content, "{g} g\n").unwrap(),
+                        Colour::RGB { r, g, b } => write!(&mut content, "{r} {g} {b} rg\n")?,
+                        Colour::CMYK { c, m, y, k } => write!(&mut content, "{c} {m} {y} {k} k\n")?,
+                        Colour::Grey { g } => write!(&mut content, "{g} g\n")?,
                     }
 
                     for span in spans.iter() {
@@ -161,35 +161,40 @@ impl Page {
                                 &mut content,
                                 "/F{} {} Tf\n",
                                 current_font.index, current_font.size
-                            )
-                            .unwrap();
+                            )?;
                         }
                         if span.colour != current_colour {
                             current_colour = span.colour;
                             match current_colour {
                                 Colour::RGB { r, g, b } => {
-                                    write!(&mut content, "{r} {g} {b} rg\n").unwrap()
+                                    write!(&mut content, "{r} {g} {b} rg\n")?
                                 }
                                 Colour::CMYK { c, m, y, k } => {
-                                    write!(&mut content, "{c} {m} {y} {k} k\n").unwrap()
+                                    write!(&mut content, "{c} {m} {y} {k} k\n")?
                                 }
-                                Colour::Grey { g } => write!(&mut content, "{g} g\n").unwrap(),
+                                Colour::Grey { g } => write!(&mut content, "{g} g\n")?,
                             }
                         }
 
-                        write!(&mut content, "BT\n").unwrap();
-                        write!(&mut content, "{} {} Td\n", span.coords.0, span.coords.1).unwrap();
-                        write!(&mut content, "<").unwrap();
+                        write!(&mut content, "BT\n")?;
+                        write!(&mut content, "{} {} Td\n", span.coords.0, span.coords.1)?;
+                        write!(&mut content, "<")?;
                         for ch in span.text.chars() {
-                            write!(&mut content, "{:04x}", fonts[0].glyph_id(ch).unwrap()).unwrap();
+                            write!(
+                                &mut content,
+                                "{:04x}",
+                                fonts[0].glyph_id(ch).unwrap_or_else(|| fonts[0]
+                                    .replacement_glyph_id()
+                                    .expect("Font has replacement glyph"))
+                            )?;
                         }
-                        write!(&mut content, "> Tj\n").unwrap();
-                        write!(&mut content, "ET\n").unwrap();
+                        write!(&mut content, "> Tj\n")?;
+                        write!(&mut content, "ET\n")?;
                     }
-                    write!(&mut content, "Q\n").unwrap();
+                    write!(&mut content, "Q\n")?;
                 }
                 PageContents::Image(image) => {
-                    write!(&mut content, "q\n").unwrap();
+                    write!(&mut content, "q\n")?;
                     write!(
                         &mut content,
                         "{} 0 0 {} {} {} cm\n",
@@ -197,20 +202,19 @@ impl Page {
                         image.position.y2 - image.position.y1,
                         image.position.x1,
                         image.position.y1
-                    )
-                    .unwrap();
-                    write!(&mut content, "/I{} Do\n", image.image_index).unwrap();
-                    write!(&mut content, "Q\n").unwrap();
+                    )?;
+                    write!(&mut content, "/I{} Do\n", image.image_index)?;
+                    write!(&mut content, "Q\n")?;
                 }
                 PageContents::RawContent(c) => {
-                    write!(&mut content, "q\n").unwrap();
-                    content.write_all(c.as_slice()).unwrap();
-                    write!(&mut content, "\nQ\n").unwrap();
+                    write!(&mut content, "q\n")?;
+                    content.write_all(c.as_slice())?;
+                    write!(&mut content, "\nQ\n")?;
                 }
             }
         }
 
-        content
+        Ok(content)
     }
 
     pub(crate) fn write(
@@ -220,7 +224,9 @@ impl Page {
         fonts: &[Font],
         images: &[Image],
         writer: &mut PdfWriter,
-    ) {
+    ) -> Result<(), PDFError> {
+        // unwrap is ok, because we SHOULD panic if this page index doesn't already exist
+        // as the references are managed by the library (specifically, Document::write)
         let id = refs.get(RefType::Page(page_index)).unwrap();
         let mut page = writer.page(id);
         page.media_box(self.media_box.into());
@@ -250,7 +256,7 @@ impl Page {
         page.contents(content_id);
         page.finish();
 
-        let rendered = self.render(fonts);
+        let rendered = self.render(fonts)?;
         let compressed = miniz_oxide::deflate::compress_to_vec_zlib(
             &rendered,
             miniz_oxide::deflate::CompressionLevel::DefaultCompression as u8,
@@ -258,6 +264,8 @@ impl Page {
         writer
             .stream(content_id, compressed.as_slice())
             .filter(pdf_writer::Filter::FlateDecode);
+
+        Ok(())
     }
 }
 
