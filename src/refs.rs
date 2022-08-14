@@ -15,6 +15,8 @@ pub(crate) enum RefType {
     FontData(usize),
     Image(usize),
     ImageMask(usize),
+    Outlines,
+    OutlineEntry(usize),
 }
 
 pub(crate) struct ObjectReferences {

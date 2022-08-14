@@ -2,11 +2,12 @@ use crate::{
     font::Font,
     image::Image,
     info::Info,
+    outline::Outline,
     page::Page,
     refs::{ObjectReferences, RefType},
     PDFError,
 };
-use pdf_writer::{PdfWriter, Ref};
+use pdf_writer::{Finish, PdfWriter, Ref};
 use std::io::Write;
 
 #[derive(Default)]
@@ -18,6 +19,7 @@ pub struct Document<'f> {
     //sorted_page_refs: Vec<Ref>,
     pub fonts: Vec<Font<'f>>,
     pub images: Vec<Image>,
+    pub outline: Outline,
 }
 
 impl<'f> Document<'f> {
@@ -53,6 +55,11 @@ impl<'f> Document<'f> {
         self.images.len() - 1
     }
 
+    /// Add a bookmark in the document outline
+    pub fn add_bookmark<S: ToString>(&mut self, title: S, page_index: usize) {
+        self.outline.add_bookmark(page_index, title.to_string());
+    }
+
     /// Write the entire document to the writer. Note: although this can write to arbitrary
     /// streams, the entire document is "rendered" in memory first. If you have a very large
     /// document, this could allocate a significant amount of memory. This limitation is due
@@ -71,6 +78,7 @@ impl<'f> Document<'f> {
             //sorted_page_refs,
             fonts,
             images,
+            outline,
         } = self;
 
         let mut refs = ObjectReferences::new();
@@ -82,7 +90,6 @@ impl<'f> Document<'f> {
         if let Some(info) = info {
             info.write(&mut refs, &mut writer);
         }
-        writer.catalog(catalog_id).pages(page_tree_id);
 
         let page_refs: Vec<Ref> = pages
             .iter()
@@ -113,6 +120,13 @@ impl<'f> Document<'f> {
                 &mut writer,
             )?;
         }
+
+        outline.write(&mut refs, &mut writer);
+
+        let mut catalog = writer.catalog(catalog_id);
+        catalog.pages(page_tree_id);
+        catalog.outlines(refs.get(RefType::Outlines).unwrap());
+        catalog.finish();
 
         w.write_all(writer.finish().as_slice()).map_err(Into::into)
     }

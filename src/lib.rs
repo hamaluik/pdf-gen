@@ -63,6 +63,11 @@
 //! }
 //! ```
 
+/// re-export some of our dependencies so dependents can use them if they need
+pub use ::image as image_crate;
+pub use pdf_writer as pdf_writer_crate;
+pub use usvg as usvg_crate;
+
 mod colour;
 pub use colour::*;
 
@@ -95,5 +100,4 @@ pub use units::*;
 mod error;
 pub use error::*;
 
-/// Re-export PDF-writer functionality, mostly for custom [pdf_writer::Content] generation
-pub use pdf_writer;
+mod outline;
