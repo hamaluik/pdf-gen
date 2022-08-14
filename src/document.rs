@@ -8,7 +8,7 @@ use crate::{
     OutlineEntry, PDFError,
 };
 use pdf_writer::{Finish, PdfWriter, Ref};
-use std::io::Write;
+use std::{cell::RefCell, io::Write, rc::Rc};
 
 #[derive(Default)]
 /// A document is the main object that stores all the contents of the PDF
@@ -57,8 +57,14 @@ impl<'f> Document<'f> {
 
     /// Add a bookmark in the document outline pointing to a page with a given index. For now,
     /// this will always fit the entire page into view when navigating to the bookmark.
-    pub fn add_bookmark<S: ToString>(&mut self, title: S, page_index: usize) -> &mut OutlineEntry {
-        self.outline.add_bookmark(page_index, title.to_string())
+    pub fn add_bookmark<S: ToString>(
+        &mut self,
+        parent: Option<Rc<RefCell<OutlineEntry>>>,
+        title: S,
+        page_index: usize,
+    ) -> Rc<RefCell<OutlineEntry>> {
+        self.outline
+            .add_bookmark(parent, page_index, title.to_string())
     }
 
     /// Write the entire document to the writer. Note: although this can write to arbitrary

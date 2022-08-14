@@ -14,8 +14,8 @@ fn main() {
     let mut doc = Document::default();
     let fira_mono_idx = doc.add_font(fira_mono);
 
-    let pages: Vec<&str> = vec!["Page A", "Page B"];
-    for (pi, pagename) in pages.into_iter().enumerate() {
+    let pagenames: Vec<&str> = vec!["Page A", "Page B"];
+    for (pi, &pagename) in pagenames.iter().enumerate() {
         let mut page = Page::new(pagesize::A6, Some(Margins::all(In(0.5).into())));
 
         let start = layout::baseline_start(&page, &doc.fonts[fira_mono_idx], Pt(24.0));
@@ -54,9 +54,10 @@ fn main() {
             coords: start,
         });
 
-        let page_index = doc.add_page(page);
-        doc.add_bookmark(pagename, page_index);
+        doc.add_page(page);
     }
+    let page_a_bookmark = doc.add_bookmark(None, pagenames[0], 0);
+    doc.add_bookmark(Some(page_a_bookmark), pagenames[1], 1);
 
     // we're going to save the contents to a file on disk, but anywhere where we can write would do
     let mut out = std::fs::File::create("bookmarks.pdf").unwrap();
