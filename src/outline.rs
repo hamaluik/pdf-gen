@@ -1,4 +1,4 @@
-use pdf_writer::{Finish, Name, Null, PdfWriter, TextStr};
+use pdf_writer::{types::OutlineItemFlags, Finish, PdfWriter, TextStr};
 
 use crate::refs::{ObjectReferences, RefType};
 
@@ -13,17 +13,34 @@ pub struct OutlineEntry {
     pub index: usize,
     pub page_index: usize,
     pub title: String,
+    pub italic: bool,
+    pub bold: bool,
+}
+
+impl OutlineEntry {
+    pub fn bolded(&mut self) -> &mut Self {
+        self.bold = true;
+        self
+    }
+
+    pub fn italicized(&mut self) -> &mut Self {
+        self.italic = true;
+        self
+    }
 }
 
 impl Outline {
-    pub fn add_bookmark(&mut self, page_index: usize, title: String) {
+    pub fn add_bookmark(&mut self, page_index: usize, title: String) -> &mut OutlineEntry {
         let entry = OutlineEntry {
             index: self.next_index,
             page_index,
             title,
+            italic: false,
+            bold: false,
         };
         self.next_index += 1;
         self.entries.push(entry);
+        self.entries.last_mut().unwrap()
     }
 
     pub(crate) fn write(&self, refs: &mut ObjectReferences, writer: &mut PdfWriter) {
@@ -67,8 +84,12 @@ impl Outline {
             }
             item.dest_direct()
                 .page(refs.get(RefType::Page(entry.page_index)).unwrap())
-                .item(Name(b"FitH"))
-                .item(Null);
+                .fit();
+
+            let mut flags: OutlineItemFlags = OutlineItemFlags::empty();
+            flags.set(OutlineItemFlags::BOLD, entry.bold);
+            flags.set(OutlineItemFlags::ITALIC, entry.italic);
+            item.flags(flags);
         }
     }
 }

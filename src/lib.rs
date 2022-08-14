@@ -101,3 +101,4 @@ mod error;
 pub use error::*;
 
 mod outline;
+pub use outline::*;

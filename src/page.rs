@@ -56,6 +56,16 @@ pub enum PageContents {
     RawContent(Vec<u8>),
 }
 
+/// An annotated region on the page that when clicked on, will navigate to the
+/// given page index
+pub struct IntraDocumentLink {
+    /// The bounding box for the link
+    pub position: Rect,
+
+    /// The page to navigate to when clicked
+    pub page_index: usize,
+}
+
 /// A page in the document
 pub struct Page {
     /// The size of the page
@@ -64,6 +74,8 @@ pub struct Page {
     pub content_box: Rect,
     /// The laid out text
     pub contents: Vec<PageContents>,
+    /// Any links that are on the page
+    pub links: Vec<IntraDocumentLink>,
 }
 
 impl Page {
@@ -88,6 +100,7 @@ impl Page {
                 y2: height - margins.top,
             },
             contents: Vec::default(),
+            links: Vec::default(),
         }
     }
 
@@ -122,6 +135,14 @@ impl Page {
     {
         self.contents
             .push(PageContents::RawContent(content.into_iter().collect()));
+    }
+
+    /// Add a link on the page that when clicked will navigate to the given page index
+    pub fn add_intradocument_link(&mut self, position: Rect, page_index: usize) {
+        self.links.push(IntraDocumentLink {
+            position,
+            page_index,
+        });
     }
 
     #[allow(clippy::write_with_newline)]
@@ -232,6 +253,21 @@ impl Page {
         page.media_box(self.media_box.into());
         page.art_box(self.content_box.into());
         page.parent(refs.get(RefType::PageTree).unwrap());
+
+        if !self.links.is_empty() {
+            let mut annotations = page.annotations();
+            for link in self.links.iter() {
+                let mut annotation = annotations.push();
+                annotation.subtype(pdf_writer::types::AnnotationType::Link);
+                annotation.rect(link.position.into());
+                annotation
+                    .action()
+                    .action_type(pdf_writer::types::ActionType::GoTo)
+                    .destination_direct()
+                    .page(refs.get(RefType::Page(link.page_index)).unwrap())
+                    .fit();
+            }
+        }
 
         let mut resources = page.resources();
         let mut resource_fonts = resources.fonts();
