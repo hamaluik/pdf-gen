@@ -1,0 +1,38 @@
+[source]
+title = 'pdf-gen'
+repository = '.'
+licenses = ['Apache-2.0']
+source_files = [
+    'Cargo.toml',
+    'LICENSE',
+    'README.md',
+    'src/lib.rs',
+    'src/error.rs',
+    'src/document.rs',
+    'src/refs.rs',
+    'src/font.rs',
+    'src/page.rs',
+    'src/image.rs',
+    'src/layout.rs',
+    'src/info.rs',
+    'src/outline.rs',
+    'src/colour.rs',
+    'src/rect.rs',
+    'src/units.rs',
+    'examples/hello-world.rs',
+    'examples/lorem-ipsum.rs',
+    'examples/bookmarks.rs',
+    'examples/image.rs',
+    'examples/svg.rs',
+]
+
+[[source.authors]]
+user_names = []
+name = 'Kenton Hamaluik'
+email = 'kenton@hamaluik.ca'
+prominence = 15
+
+[pdf]
+font = 'Fira Mono'
+theme = 'gruvbox (Light) (Hard)'
+outfile = 'pdf-gen-src.pdf'

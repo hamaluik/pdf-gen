@@ -221,7 +221,13 @@ pub fn layout_text(
                     document.fonts[font_index]
                         .face
                         .glyph_index('\u{FFFD}')
-                        .expect("Font has a replacement glyph")
+                        //.expect("Font has a replacement glyph")
+                        .unwrap_or_else(|| {
+                            document.fonts[font_index]
+                                .face
+                                .glyph_index('?')
+                                .expect("font has a question mark glyph")
+                        })
                 });
 
             let hadv = scaling

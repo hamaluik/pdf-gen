@@ -204,9 +204,14 @@ impl Page {
                             write!(
                                 &mut content,
                                 "{:04x}",
-                                fonts[0].glyph_id(ch).unwrap_or_else(|| fonts[0]
-                                    .replacement_glyph_id()
-                                    .expect("Font has replacement glyph"))
+                                fonts[current_font.index]
+                                    .glyph_id(ch)
+                                    .unwrap_or_else(|| fonts[current_font.index]
+                                        .replacement_glyph_id()
+                                        //.expect("Font has replacement glyph")
+                                        .unwrap_or_else(|| fonts[current_font.index]
+                                            .glyph_id('?')
+                                            .expect("Font has '?' glyph!")))
                             )?;
                         }
                         write!(&mut content, "> Tj\n")?;
