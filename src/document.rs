@@ -7,22 +7,23 @@ use crate::{
     refs::{ObjectReferences, RefType},
     OutlineEntry, PDFError,
 };
+use id_arena::{Arena, Id};
 use pdf_writer::{Finish, PdfWriter, Ref};
 use std::{cell::RefCell, io::Write, rc::Rc};
 
 #[derive(Default)]
 /// A document is the main object that stores all the contents of the PDF
 /// then renders it out with a call to [Document::write]
-pub struct Document<'f> {
+pub struct Document {
     pub info: Option<Info>,
-    pub pages: Vec<Page>,
-    //sorted_page_refs: Vec<Ref>,
-    pub fonts: Vec<Font<'f>>,
-    pub images: Vec<Image>,
+    pub pages: Arena<Page>,
+    pub page_order: Vec<Id<Page>>,
+    pub fonts: Arena<Font>,
+    pub images: Arena<Image>,
     pub outline: Outline,
 }
 
-impl<'f> Document<'f> {
+impl Document {
     /// Sets information about the document. If not provided, no information block will be
     /// written to the PDF
     pub fn set_info(&mut self, info: Info) {
@@ -31,28 +32,79 @@ impl<'f> Document<'f> {
 
     /// Add a page to the document, returning the index of that page within the document.
     /// This index can be used to refer to the page if needed, provided that you don't
-    /// remove or reorder the pages in the document.
-    pub fn add_page(&mut self, page: Page) -> usize {
-        self.pages.push(page);
-        self.pages.len() - 1
+    /// remove or reorder the pages in the document. The page will be added to the end
+    /// of the document.
+    pub fn add_page(&mut self, page: Page) -> Id<Page> {
+        let id = self.pages.alloc(page);
+        self.page_order.push(id);
+        id
+    }
+
+    /// Add a page to the document, inserting it before the page identified by `next`.
+    /// If there is no page identified by `next`, the page will be added to the end of
+    /// the document.
+    pub fn insert_page_before_id(&mut self, page: Page, next: Id<Page>) -> Id<Page> {
+        let id = self.pages.alloc(page);
+        if let Some(index) = self.index_of_page(next) {
+            if index > self.page_order.len() {
+                self.page_order.push(id);
+            } else {
+                self.page_order.insert(index, id);
+            }
+        } else {
+            self.page_order.push(id);
+        }
+        id
+    }
+
+    /// Add a page to the document, inserting it after the page identified by `previous`.
+    /// If there is no page identified by `previous`, the page will be added to the end
+    /// of the document.
+    pub fn insert_page_after_id(&mut self, page: Page, previous: Id<Page>) -> Id<Page> {
+        let id = self.pages.alloc(page);
+        if let Some(index) = self.index_of_page(previous) {
+            let index = index + 1;
+            if index > self.page_order.len() {
+                self.page_order.push(id);
+            } else {
+                self.page_order.insert(index, id);
+            }
+        } else {
+            self.page_order.push(id);
+        }
+        id
+    }
+
+    /// Get the 0-based index of a page given its ID. Note that changing the page order
+    /// after this call _will_ invalidate the returned page index
+    pub fn index_of_page(&self, page: Id<Page>) -> Option<usize> {
+        self.page_order
+            .iter()
+            .enumerate()
+            .find(|&(_, p)| *p == page)
+            .map(|(i, _)| i)
+    }
+
+    /// Get the page Id of a page at the given index. Returns [None] if
+    /// `page_index >= self.page_order.len()`.
+    pub fn id_of_page_index(&self, page_index: usize) -> Option<Id<Page>> {
+        self.page_order.get(page_index).map(|i| *i)
     }
 
     /// Add a font to the document structure. Note that fonts are stored "globally" within
     /// the document, such that any page can access it by referring to it by its index /
     /// reference. The returned value is the index of the font, which is valid so long as
     /// you don't ever remove or reorder fonts from / in the document.
-    pub fn add_font(&mut self, font: Font<'f>) -> usize {
-        self.fonts.push(font);
-        self.fonts.len() - 1
+    pub fn add_font(&mut self, font: Font) -> Id<Font> {
+        self.fonts.alloc(font)
     }
 
     /// Add an image to the document structure. Note that images are stored "globally"
     /// within the document, such that any page can access and re-use images by referring
     /// to it by its its / reference. The returned value is the index of the image, which
     /// is valid so long as you don't ever remove or reorder images from / in the document.
-    pub fn add_image(&mut self, image: Image) -> usize {
-        self.images.push(image);
-        self.images.len() - 1
+    pub fn add_image(&mut self, image: Image) -> Id<Image> {
+        self.images.alloc(image)
     }
 
     /// Add a bookmark in the document outline pointing to a page with a given index. For now,
@@ -82,7 +134,7 @@ impl<'f> Document<'f> {
         let Document {
             info,
             pages,
-            //sorted_page_refs,
+            page_order,
             fonts,
             images,
             outline,
@@ -98,32 +150,37 @@ impl<'f> Document<'f> {
             info.write(&mut refs, &mut writer);
         }
 
-        let page_refs: Vec<Ref> = pages
+        // let page_refs: Vec<Ref> = pages
+        //     .iter()
+        //     .map(|(id, _page)| refs.gen(RefType::Page(id.index())))
+        //     .collect();
+        let page_refs: Vec<Ref> = page_order
             .iter()
-            .enumerate()
-            .map(|(i, _)| refs.gen(RefType::Page(i)))
+            .map(|id| refs.gen(RefType::Page(id.index())))
             .collect();
 
         writer
             .pages(page_tree_id)
             //.count(sorted_page_refs.len() as i32)
-            .count(pages.len() as i32)
+            .count(page_refs.len() as i32)
             .kids(page_refs);
 
-        for (i, font) in fonts.iter().enumerate() {
+        for (i, font) in fonts.iter() {
             font.write(&mut refs, i, &mut writer);
         }
 
-        for (i, image) in images.iter().enumerate() {
-            image.write(&mut refs, i, &mut writer)?;
+        for (i, image) in images.iter() {
+            image.write(&mut refs, i.index(), &mut writer)?;
         }
 
-        for (i, page) in pages.iter().enumerate() {
+        for id in page_order.iter() {
+            let page = pages.get(*id).ok_or(PDFError::PageMissing)?;
             page.write(
                 &mut refs,
-                i,
-                fonts.as_slice(),
-                images.as_slice(),
+                id.index(),
+                &page_order,
+                &fonts,
+                &images,
                 &mut writer,
             )?;
         }

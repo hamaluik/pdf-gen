@@ -9,20 +9,20 @@ use pdf_gen::{In, Pt};
 
 fn main() {
     let fira_mono = include_bytes!("../assets/FiraMono-Regular.ttf");
-    let fira_mono = Font::load(fira_mono).expect("can load font");
+    let fira_mono = Font::load(fira_mono.to_vec()).expect("can load font");
 
     let mut doc = Document::default();
-    let fira_mono_idx = doc.add_font(fira_mono);
+    let fira_mono = doc.add_font(fira_mono);
 
     let pagenames: Vec<&str> = vec!["Page A", "Page B"];
     for (pi, &pagename) in pagenames.iter().enumerate() {
         let mut page = Page::new(pagesize::A6, Some(Margins::all(In(0.5).into())));
 
-        let start = layout::baseline_start(&page, &doc.fonts[fira_mono_idx], Pt(24.0));
+        let start = layout::baseline_start(&page, &doc.fonts[fira_mono], Pt(24.0));
         page.add_span(SpanLayout {
             text: pagename.to_string(),
             font: SpanFont {
-                index: fira_mono_idx,
+                id: fira_mono,
                 size: Pt(24.0),
             },
             colour: colours::BLACK,
@@ -31,23 +31,22 @@ fn main() {
 
         let start = (
             start.0,
-            start.1 - doc.fonts[fira_mono_idx].line_height(Pt(24.0)),
+            start.1 - doc.fonts[fira_mono].line_height(Pt(24.0)),
         );
         let link_label = format!("Link to page {}", (1 - pi) + 1);
-        page.add_intradocument_link(
+        page.add_intradocument_link_by_index(
             Rect {
                 x1: start.0,
                 y1: start.1,
-                x2: start.0
-                    + layout::width_of_text(&link_label, &doc.fonts[fira_mono_idx], Pt(24.0)),
-                y2: start.1 + doc.fonts[fira_mono_idx].ascent(Pt(24.0)),
+                x2: start.0 + layout::width_of_text(&link_label, &doc.fonts[fira_mono], Pt(24.0)),
+                y2: start.1 + doc.fonts[fira_mono].ascent(Pt(24.0)),
             },
             1 - pi,
         );
         page.add_span(SpanLayout {
             text: link_label,
             font: SpanFont {
-                index: fira_mono_idx,
+                id: fira_mono,
                 size: Pt(24.0),
             },
             colour: colours::BLACK,

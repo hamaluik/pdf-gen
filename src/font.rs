@@ -2,12 +2,13 @@ use crate::{
     refs::{ObjectReferences, RefType},
     PDFError, Pt,
 };
+use id_arena::Id;
+use owned_ttf_parser::{AsFaceRef, OwnedFace};
 use pdf_writer::{
     types::{FontFlags, SystemInfo},
     Finish, Name, PdfWriter, Ref, Str,
 };
 use std::collections::HashMap;
-use ttf_parser::Face;
 
 /// A parsed font object. Fonts can be TTF or OTF fonts, and will be embedded in their
 /// entirety in the generated PDF, so large fonts may dramatically increase the size of
@@ -18,26 +19,26 @@ use ttf_parser::Face;
 ///
 /// Typically, fonts are referred to throughout user applications by their _index_ within
 /// the document itself, and not by any typed references
-pub struct Font<'f> {
-    pub bytes: &'f [u8],
-    pub face: Face<'f>,
+pub struct Font {
+    pub face: OwnedFace,
 }
 
-impl<'f> Font<'f> {
+impl Font {
     /// Load a font from raw bytes, parsing the font and returning an error if the font
     /// could not be parsed
-    pub fn load(bytes: &'f [u8]) -> Result<Font<'f>, PDFError> {
-        let face = Face::from_slice(bytes, 0)?;
+    pub fn load(bytes: Vec<u8>) -> Result<Font, PDFError> {
+        let face = OwnedFace::from_vec(bytes, 0)?;
 
-        Ok(Font { bytes, face })
+        Ok(Font { face })
     }
 
     /// Obtain the full name of the font. Panics if the font does not have a name
     pub fn name(&self) -> String {
         self.face
+            .as_face_ref()
             .names()
             .into_iter()
-            .find(|name| name.name_id == ttf_parser::name_id::FULL_NAME && name.is_unicode())
+            .find(|name| name.name_id == owned_ttf_parser::name_id::FULL_NAME && name.is_unicode())
             .and_then(|name| name.to_string())
             .expect("font face has a name")
     }
@@ -45,39 +46,40 @@ impl<'f> Font<'f> {
     /// Obtain the family name of the font. Panics if the font does not have a font family
     pub fn family(&self) -> String {
         self.face
+            .as_face_ref()
             .names()
             .into_iter()
-            .find(|name| name.name_id == ttf_parser::name_id::FAMILY && name.is_unicode())
+            .find(|name| name.name_id == owned_ttf_parser::name_id::FAMILY && name.is_unicode())
             .and_then(|name| name.to_string())
             .expect("font face has a family")
     }
 
     /// Calculate the ascent (distance from the baseline to the top of the font) for the given font size
     pub fn ascent(&self, size: Pt) -> Pt {
-        let scaling: Pt = size / self.face.units_per_em() as f32;
-        scaling * self.face.ascender() as f32
+        let scaling: Pt = size / self.face.as_face_ref().units_per_em() as f32;
+        scaling * self.face.as_face_ref().ascender() as f32
     }
 
     /// Calculate the descent (distance from the baseline to the bottom of the font) for the given font size.
     /// Note: this is usually negative
     pub fn descent(&self, size: Pt) -> Pt {
-        let scaling: Pt = size / self.face.units_per_em() as f32;
-        scaling * self.face.descender() as f32
+        let scaling: Pt = size / self.face.as_face_ref().units_per_em() as f32;
+        scaling * self.face.as_face_ref().descender() as f32
     }
 
     /// Calculate the leading (extra space between lines) for the given font size
     pub fn leading(&self, size: Pt) -> Pt {
-        let scaling: Pt = size / self.face.units_per_em() as f32;
-        scaling * self.face.line_gap() as f32
+        let scaling: Pt = size / self.face.as_face_ref().units_per_em() as f32;
+        scaling * self.face.as_face_ref().line_gap() as f32
     }
 
     /// Calculate the default line height of the font for the given size. The returned value is
     /// how much to vertically offset a second row of text below a first row of text.
     pub fn line_height(&self, size: Pt) -> Pt {
-        let scaling: Pt = size / self.face.units_per_em() as f32;
-        let leading: Pt = scaling * self.face.line_gap() as f32;
-        let ascent: Pt = scaling * self.face.ascender() as f32;
-        let descent: Pt = scaling * self.face.descender() as f32;
+        let scaling: Pt = size / self.face.as_face_ref().units_per_em() as f32;
+        let leading: Pt = scaling * self.face.as_face_ref().line_gap() as f32;
+        let ascent: Pt = scaling * self.face.as_face_ref().ascender() as f32;
+        let descent: Pt = scaling * self.face.as_face_ref().descender() as f32;
         leading + ascent - descent
     }
 
@@ -93,7 +95,7 @@ impl<'f> Font<'f> {
     /// * 800: Extra Bold (Ultra Bold)
     /// * 900: Black (Heavy)
     pub fn weight(&self) -> u16 {
-        self.face.weight().to_number()
+        self.face.as_face_ref().weight().to_number()
     }
 
     fn write_cid(
@@ -119,7 +121,7 @@ impl<'f> Font<'f> {
         let ids = self.glyph_ids();
         let ids_augmented = self.glyphs_sizing(&ids);
 
-        let scaling = 1000.0 / self.face.units_per_em() as f32;
+        let scaling = 1000.0 / self.face.as_face_ref().units_per_em() as f32;
 
         // find the most popular width to use as the default
         // <width, count>
@@ -178,8 +180,8 @@ impl<'f> Font<'f> {
         let id = refs.gen(RefType::FontData(font_index));
 
         writer
-            .stream(id, self.bytes)
-            .pair(Name(b"Length1"), self.bytes.len() as i32);
+            .stream(id, self.face.as_slice())
+            .pair(Name(b"Length1"), self.face.as_slice().len() as i32);
 
         id
     }
@@ -213,38 +215,40 @@ impl<'f> Font<'f> {
         let mut descriptor = writer.font_descriptor(id);
         descriptor.name(Name(self.name().as_bytes()));
         descriptor.family(Str(self.family().as_bytes()));
-        descriptor.weight(self.face.weight().to_number());
+        descriptor.weight(self.face.as_face_ref().weight().to_number());
 
         let mut flags: FontFlags = FontFlags::empty();
-        if self.face.is_monospaced() {
+        if self.face.as_face_ref().is_monospaced() {
             flags.set(FontFlags::FIXED_PITCH, true);
         }
-        if self.face.is_italic() {
+        if self.face.as_face_ref().is_italic() {
             flags.set(FontFlags::ITALIC, true);
         }
         descriptor.flags(flags);
 
-        let scaling = 1000.0 / self.face.units_per_em() as f32;
+        let scaling = 1000.0 / self.face.as_face_ref().units_per_em() as f32;
         descriptor.bbox(pdf_writer::Rect {
             x1: 0.0,
             y1: 0.0,
             x2: sum_width as f32 * scaling,
             y2: max_height as f32 * scaling,
         });
-        descriptor.italic_angle(self.face.italic_angle().unwrap_or_default());
-        descriptor.ascent(self.face.ascender() as f32 * scaling);
-        descriptor.descent(self.face.descender() as f32 * scaling);
-        descriptor.leading(self.face.line_gap() as f32 * scaling);
+        descriptor.italic_angle(self.face.as_face_ref().italic_angle().unwrap_or_default());
+        descriptor.ascent(self.face.as_face_ref().ascender() as f32 * scaling);
+        descriptor.descent(self.face.as_face_ref().descender() as f32 * scaling);
+        descriptor.leading(self.face.as_face_ref().line_gap() as f32 * scaling);
         descriptor.cap_height(
             self.face
+                .as_face_ref()
                 .capital_height()
                 .map(|h| h as f32 * scaling)
                 .unwrap_or(1000.0),
         );
         descriptor.x_height(
             self.face
+                .as_face_ref()
                 .x_height()
-                .unwrap_or_else(|| self.face.capital_height().unwrap_or_default())
+                .unwrap_or_else(|| self.face.as_face_ref().capital_height().unwrap_or_default())
                 as f32
                 * scaling,
         );
@@ -267,6 +271,7 @@ impl<'f> Font<'f> {
 
         for subtable in self
             .face
+            .as_face_ref()
             .tables()
             .cmap
             .expect("font has cmap table")
@@ -290,12 +295,13 @@ impl<'f> Font<'f> {
     fn glyphs_sizing(&self, ids: &HashMap<u16, char>) -> HashMap<u16, (char, (u16, i16))> {
         let mut ids_augmented: HashMap<u16, (char, (u16, i16))> = HashMap::new();
         for (&id, &ch) in ids.iter() {
-            if let Some(gid) = self.face.glyph_index(ch) {
-                if let Some(h_advance) = self.face.glyph_hor_advance(gid) {
+            if let Some(gid) = self.face.as_face_ref().glyph_index(ch) {
+                if let Some(h_advance) = self.face.as_face_ref().glyph_hor_advance(gid) {
                     let height = self
                         .face
+                        .as_face_ref()
                         .glyph_bounding_box(gid)
-                        .map(|bbox| bbox.y_max - bbox.y_min - self.face.descender())
+                        .map(|bbox| bbox.y_max - bbox.y_min - self.face.as_face_ref().descender())
                         .unwrap_or(1000);
                     ids_augmented.insert(id, (ch, (h_advance, height)));
                 }
@@ -370,12 +376,8 @@ endcodespacerange
         id
     }
 
-    pub(crate) fn write(
-        &self,
-        refs: &mut ObjectReferences,
-        font_index: usize,
-        writer: &mut PdfWriter,
-    ) {
+    pub(crate) fn write(&self, refs: &mut ObjectReferences, id: Id<Font>, writer: &mut PdfWriter) {
+        let font_index = id.index();
         let font_id = refs.gen(RefType::Font(font_index));
         let cid_font_id = self.write_cid(refs, font_index, writer);
         let to_unicode_id = self.write_to_unicode(refs, font_index, writer);
@@ -388,10 +390,10 @@ endcodespacerange
     }
 
     pub fn glyph_id(&self, ch: char) -> Option<u16> {
-        self.face.glyph_index(ch).map(|i| i.0)
+        self.face.as_face_ref().glyph_index(ch).map(|i| i.0)
     }
 
     pub fn replacement_glyph_id(&self) -> Option<u16> {
-        self.face.glyph_index('\u{FFFD}').map(|i| i.0)
+        self.face.as_face_ref().glyph_index('\u{FFFD}').map(|i| i.0)
     }
 }

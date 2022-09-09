@@ -4,6 +4,7 @@ use crate::font::Font;
 use crate::page::*;
 use crate::rect::Rect;
 use crate::units::Pt;
+use owned_ttf_parser::AsFaceRef;
 
 /// Margins are used when laying out objects on a page. There is no control
 /// preventing objects on pages to overflow the margins—the margins are there
@@ -101,8 +102,8 @@ impl Margins {
 /// out according to the `ContentBox` of the page, which is usually derived from the page size
 /// and accompanying margins.
 pub fn baseline_start(page: &Page, font: &Font, size: Pt) -> (Pt, Pt) {
-    let scaling: Pt = size / Pt(font.face.units_per_em() as f32);
-    let ascent: Pt = scaling * font.face.ascender() as f32;
+    let scaling: Pt = size / Pt(font.face.as_face_ref().units_per_em() as f32);
+    let ascent: Pt = scaling * font.face.as_face_ref().ascender() as f32;
     let x = page.content_box.x1;
     let y = page.content_box.y2 - ascent;
     (x, y)
@@ -140,14 +141,15 @@ pub fn layout_text(
     'inputspans: while !text.is_empty() {
         let (span, colour, font) = text.remove(0);
         let SpanFont {
-            index: font_index,
+            id: font_id,
             size: font_size,
         } = font;
 
-        let scaling: Pt = font_size / document.fonts[font_index].face.units_per_em() as f32;
-        let leading: Pt = scaling * document.fonts[font_index].face.line_gap() as f32;
-        let ascent: Pt = scaling * document.fonts[font_index].face.ascender() as f32;
-        let descent: Pt = scaling * document.fonts[font_index].face.descender() as f32;
+        let scaling: Pt =
+            font_size / document.fonts[font_id].face.as_face_ref().units_per_em() as f32;
+        let leading: Pt = scaling * document.fonts[font_id].face.as_face_ref().line_gap() as f32;
+        let ascent: Pt = scaling * document.fonts[font_id].face.as_face_ref().ascender() as f32;
+        let descent: Pt = scaling * document.fonts[font_id].face.as_face_ref().descender() as f32;
         let line_gap: Pt = leading + ascent - descent;
 
         // replace tabs with spaces
@@ -158,7 +160,7 @@ pub fn layout_text(
         let mut current_span: SpanLayout = SpanLayout {
             text: "".into(),
             font: SpanFont {
-                index: font_index,
+                id: font_id,
                 size: font_size,
             },
             colour,
@@ -176,7 +178,7 @@ pub fn layout_text(
                             remaining,
                             colour,
                             SpanFont {
-                                index: font_index,
+                                id: font_id,
                                 size: font_size,
                             },
                         ),
@@ -199,7 +201,7 @@ pub fn layout_text(
                                 remaining,
                                 colour,
                                 SpanFont {
-                                    index: font_index,
+                                    id: font_id,
                                     size: font_size,
                                 },
                             ),
@@ -214,25 +216,29 @@ pub fn layout_text(
                 }
             }
 
-            let gid = document.fonts[font_index]
+            let gid = document.fonts[font_id]
                 .face
+                .as_face_ref()
                 .glyph_index(ch)
                 .unwrap_or_else(|| {
-                    document.fonts[font_index]
+                    document.fonts[font_id]
                         .face
+                        .as_face_ref()
                         .glyph_index('\u{FFFD}')
                         //.expect("Font has a replacement glyph")
                         .unwrap_or_else(|| {
-                            document.fonts[font_index]
+                            document.fonts[font_id]
                                 .face
+                                .as_face_ref()
                                 .glyph_index('?')
                                 .expect("font has a question mark glyph")
                         })
                 });
 
             let hadv = scaling
-                * document.fonts[font_index]
+                * document.fonts[font_id]
                     .face
+                    .as_face_ref()
                     .glyph_hor_advance(gid)
                     .unwrap_or_default() as f32;
 
@@ -256,7 +262,7 @@ pub fn layout_text(
                                 remaining,
                                 colour,
                                 SpanFont {
-                                    index: font_index,
+                                    id: font_id,
                                     size: font_size,
                                 },
                             ),
@@ -294,14 +300,15 @@ pub fn layout_text(
 
 /// Calculate the width of a given string of text given the font and font size
 pub fn width_of_text(text: &str, font: &Font, size: Pt) -> Pt {
-    let scaling = size / font.face.units_per_em() as f32;
+    let scaling = size / font.face.as_face_ref().units_per_em() as f32;
     text.chars()
         .filter_map(|ch| font.glyph_id(ch))
         .map(|gid| {
             scaling
                 * font
                     .face
-                    .glyph_hor_advance(ttf_parser::GlyphId(gid))
+                    .as_face_ref()
+                    .glyph_hor_advance(owned_ttf_parser::GlyphId(gid))
                     .unwrap_or_default() as f32
         })
         .sum()

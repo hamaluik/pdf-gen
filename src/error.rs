@@ -9,7 +9,7 @@ pub enum PDFError {
 
     #[error(transparent)]
     /// [ttf_parser] failed to parse the font
-    FaceParsingError(#[from] ttf_parser::FaceParsingError),
+    FaceParsingError(#[from] owned_ttf_parser::FaceParsingError),
 
     #[error(transparent)]
     /// [image] failed to parse the image
@@ -18,4 +18,7 @@ pub enum PDFError {
     #[error(transparent)]
     /// [usvg] failed to parse the image
     Svg(#[from] usvg::Error),
+
+    #[error("The page has not been allocated to the document page arena (the referenced page is missing)")]
+    PageMissing,
 }

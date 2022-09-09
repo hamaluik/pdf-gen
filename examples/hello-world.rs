@@ -9,18 +9,18 @@ use pdf_gen::{In, Pt};
 fn main() {
     // load a font to embed and use
     let fira_mono = include_bytes!("../assets/FiraMono-Regular.ttf");
-    let fira_mono = Font::load(fira_mono).expect("can load font");
+    let fira_mono = Font::load(fira_mono.to_vec()).expect("can load font");
 
     // start a document and add the font to it
     let mut doc = Document::default();
-    let fira_mono_idx = doc.add_font(fira_mono);
+    let fira_mono = doc.add_font(fira_mono);
 
     // create a page that is US Letter paper sized (8.5 x 11 inches)
     // with a margin around all edges of the page of 0.5 inches
     let mut page = Page::new(pagesize::LETTER, Some(Margins::all(In(0.5).into())));
 
     // calculate where we should place text to have it at the top-left of the page within the margins
-    let start = layout::baseline_start(&page, &doc.fonts[fira_mono_idx], Pt(16.0));
+    let start = layout::baseline_start(&page, &doc.fonts[fira_mono], Pt(16.0));
 
     // add a span of text to the page
     page.add_span(SpanLayout {
@@ -28,7 +28,7 @@ fn main() {
         text: "Hello world!".to_string(),
         // that will be presented in size 16pt Fira Mono font
         font: SpanFont {
-            index: fira_mono_idx,
+            id: fira_mono,
             size: Pt(16.0),
         },
         // that will be black

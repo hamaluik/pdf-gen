@@ -5,6 +5,7 @@ use crate::layout::Margins;
 use crate::rect::Rect;
 use crate::refs::{ObjectReferences, RefType};
 use crate::{units::*, PDFError};
+use id_arena::{Arena, Id};
 use pdf_writer::{Content, Finish};
 use pdf_writer::{Name, PdfWriter};
 use std::io::Write;
@@ -14,10 +15,16 @@ pub use self::pagesize::PageSize;
 /// What font to use for a given span of text
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct SpanFont {
-    /// The font index, weakly referencing a specific font within the greater document
-    pub index: usize,
+    /// Which font to use for the span
+    pub id: Id<Font>,
     /// The size of the text
     pub size: Pt,
+}
+
+impl SpanFont {
+    fn font_index(&self) -> usize {
+        self.id.index()
+    }
 }
 
 /// A section of text to be laid out onto a page
@@ -56,6 +63,16 @@ pub enum PageContents {
     RawContent(Vec<u8>),
 }
 
+/// A reference to page via its Id or 0-based page index
+pub enum PageLinkReference {
+    /// Refer to a page by it's Id (resilient to page re-ordering)
+    ById(Id<Page>),
+    /// Refer to a page by it's 0-based index (will fail page-reordering but
+    /// doesn't require you to know the page Id of a page that hasn't been
+    /// created yet)
+    ByIndex(usize),
+}
+
 /// An annotated region on the page that when clicked on, will navigate to the
 /// given page index
 pub struct IntraDocumentLink {
@@ -63,7 +80,7 @@ pub struct IntraDocumentLink {
     pub position: Rect,
 
     /// The page to navigate to when clicked
-    pub page_index: usize,
+    pub page: PageLinkReference,
 }
 
 /// A page in the document
@@ -138,15 +155,23 @@ impl Page {
     }
 
     /// Add a link on the page that when clicked will navigate to the given page index
-    pub fn add_intradocument_link(&mut self, position: Rect, page_index: usize) {
+    pub fn add_intradocument_link_by_id(&mut self, position: Rect, page: Id<Page>) {
         self.links.push(IntraDocumentLink {
             position,
-            page_index,
+            page: PageLinkReference::ById(page),
+        });
+    }
+
+    /// Add a link on the page that when clicked will navigate to the given page index
+    pub fn add_intradocument_link_by_index(&mut self, position: Rect, page: usize) {
+        self.links.push(IntraDocumentLink {
+            position,
+            page: PageLinkReference::ByIndex(page),
         });
     }
 
     #[allow(clippy::write_with_newline)]
-    fn render(&self, fonts: &[Font]) -> Result<Vec<u8>, std::io::Error> {
+    fn render(&self, fonts: &Arena<Font>) -> Result<Vec<u8>, std::io::Error> {
         if self.contents.is_empty() {
             return Ok(Vec::default());
         }
@@ -167,7 +192,8 @@ impl Page {
                     write!(
                         &mut content,
                         "/F{} {} Tf\n",
-                        current_font.index, current_font.size
+                        current_font.font_index(),
+                        current_font.size
                     )?;
                     match current_colour {
                         Colour::RGB { r, g, b } => write!(&mut content, "{r} {g} {b} rg\n")?,
@@ -181,7 +207,8 @@ impl Page {
                             write!(
                                 &mut content,
                                 "/F{} {} Tf\n",
-                                current_font.index, current_font.size
+                                current_font.font_index(),
+                                current_font.size
                             )?;
                         }
                         if span.colour != current_colour {
@@ -204,14 +231,13 @@ impl Page {
                             write!(
                                 &mut content,
                                 "{:04x}",
-                                fonts[current_font.index]
-                                    .glyph_id(ch)
-                                    .unwrap_or_else(|| fonts[current_font.index]
-                                        .replacement_glyph_id()
-                                        //.expect("Font has replacement glyph")
-                                        .unwrap_or_else(|| fonts[current_font.index]
-                                            .glyph_id('?')
-                                            .expect("Font has '?' glyph!")))
+                                fonts[current_font.id].glyph_id(ch).unwrap_or_else(|| fonts
+                                    [current_font.id]
+                                    .replacement_glyph_id()
+                                    //.expect("Font has replacement glyph")
+                                    .unwrap_or_else(|| fonts[current_font.id]
+                                        .glyph_id('?')
+                                        .expect("Font has '?' glyph!")))
                             )?;
                         }
                         write!(&mut content, "> Tj\n")?;
@@ -247,8 +273,9 @@ impl Page {
         &self,
         refs: &mut ObjectReferences,
         page_index: usize,
-        fonts: &[Font],
-        images: &[Image],
+        page_order: &Vec<Id<Page>>,
+        fonts: &Arena<Font>,
+        images: &Arena<Image>,
         writer: &mut PdfWriter,
     ) -> Result<(), PDFError> {
         // unwrap is ok, because we SHOULD panic if this page index doesn't already exist
@@ -262,14 +289,24 @@ impl Page {
         if !self.links.is_empty() {
             let mut annotations = page.annotations();
             for link in self.links.iter() {
+                let page_ref = match link.page {
+                    PageLinkReference::ById(id) => id.index(),
+                    PageLinkReference::ByIndex(idx) => {
+                        page_order.get(idx).ok_or(PDFError::PageMissing)?.index()
+                    }
+                };
+
                 let mut annotation = annotations.push();
                 annotation.subtype(pdf_writer::types::AnnotationType::Link);
                 annotation.rect(link.position.into());
+                annotation.flags(pdf_writer::types::AnnotationFlags::INVISIBLE);
+                annotation.border(0.0, 0.0, 0.0, None);
+                annotation.color_transparent();
                 annotation
                     .action()
                     .action_type(pdf_writer::types::ActionType::GoTo)
                     .destination_direct()
-                    .page(refs.get(RefType::Page(link.page_index)).unwrap())
+                    .page(refs.get(RefType::Page(page_ref)).unwrap())
                     .fit();
             }
         }
