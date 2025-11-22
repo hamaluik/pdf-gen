@@ -1,9 +1,12 @@
+use std::collections::VecDeque;
+
 use crate::colour::Colour;
 use crate::document::Document;
 use crate::font::Font;
 use crate::page::*;
 use crate::rect::Rect;
 use crate::units::Pt;
+use id_arena::Id;
 use owned_ttf_parser::AsFaceRef;
 
 /// Margins are used when laying out objects on a page. There is no control
@@ -32,7 +35,8 @@ impl Margins {
     }
 
     /// Create margins where all values are equal
-    pub fn all(value: Pt) -> Margins {
+    pub fn all<D: Into<Pt>>(value: D) -> Margins {
+        let value: Pt = value.into();
         Margins {
             top: value,
             right: value,
@@ -97,15 +101,20 @@ impl Margins {
     }
 }
 
+pub fn baseline_offset(font: &Font, size: Pt) -> Pt {
+    let scaling: Pt = size / Pt(font.face.as_face_ref().units_per_em() as f32);
+    let ascent: Pt = scaling * font.face.as_face_ref().ascender() as f32;
+    Pt(0.) - ascent
+}
+
 /// Calculates the coordinates of where text can start on a page to be just within the top left
 /// margin, taking into account the ascending height of the font and the font size. Text is laid
 /// out according to the `ContentBox` of the page, which is usually derived from the page size
 /// and accompanying margins.
 pub fn baseline_start(page: &Page, font: &Font, size: Pt) -> (Pt, Pt) {
-    let scaling: Pt = size / Pt(font.face.as_face_ref().units_per_em() as f32);
-    let ascent: Pt = scaling * font.face.as_face_ref().ascender() as f32;
+    let ascent = baseline_offset(font, size);
     let x = page.content_box.x1;
-    let y = page.content_box.y2 - ascent;
+    let y = page.content_box.y2 + ascent;
     (x, y)
 }
 
@@ -119,7 +128,7 @@ pub fn baseline_start(page: &Page, font: &Font, size: Pt) -> (Pt, Pt) {
 /// then create a new page and layout the text on that page as well.
 ///
 /// Returns the page coordinates of where the layout stopped, in case you ended up short
-pub fn layout_text(
+pub fn layout_text_naive(
     document: &Document,
     page: &mut Page,
     start: (Pt, Pt),
@@ -312,4 +321,84 @@ pub fn width_of_text(text: &str, font: &Font, size: Pt) -> Pt {
                     .unwrap_or_default() as f32
         })
         .sum()
+}
+
+pub fn layout_text_spring<'w>(
+    document: &Document,
+    page: &mut Page,
+    font_id: Id<Font>,
+    size: Pt,
+    text: &'w str,
+    bounding_box: Rect,
+) {
+    struct Word<'w> {
+        word: &'w str,
+        width: Pt,
+    }
+
+    let font = document.fonts.get(font_id).expect("can get font");
+
+    // split the text into words separated by springs (spaces)
+    let mut words: VecDeque<Word> = VecDeque::default();
+    for word in text.split_whitespace() {
+        let width = width_of_text(word, font, size);
+        words.push_back(Word { word, width });
+    }
+
+    let mut y = bounding_box.y2 + baseline_offset(font, size);
+    let max_width = bounding_box.x2 - bounding_box.x1;
+    let space_width = width_of_text(" ", font, size);
+
+    'layout: loop {
+        let mut words_width = Pt(0.);
+        let mut line: Vec<Word> = Vec::default();
+        'line: loop {
+            if words.is_empty() {
+                break 'line;
+            }
+
+            // try adding the word to the line
+            let word = words.pop_front().expect("words is not empty");
+            let word_width = word.width;
+            line.push(word);
+
+            words_width += word_width;
+            let spaces_width = space_width * ((line.len() - 1) as f32);
+
+            // check for overflow
+            if words_width + spaces_width >= max_width {
+                // overflowing!
+                // see if we can squish the spaces down to fit
+                if words_width + (spaces_width * 0.8) <= max_width {
+                    // yes we can!
+                    break 'line;
+                } else {
+                    // nope, that would be too tight. move this word back to the list and
+                    // start a new line
+                    words_width -= word_width;
+                    words.push_front(line.pop().expect("word in line"));
+                }
+            } else {
+                // not overflowing yet, we can add more text
+            }
+        }
+
+        if !line.is_empty() {
+            let mut x = bounding_box.x1;
+            let space_width = (max_width - words_width) / ((line.len() - 1) as f32);
+            for word in line {
+                page.add_span(SpanLayout {
+                    text: word.word.to_string(),
+                    font: SpanFont { id: font_id, size },
+                    colour: crate::colours::BLACK,
+                    coords: (x, y),
+                });
+                x += word.width + space_width;
+            }
+        } else if line.is_empty() || words.is_empty() {
+            break 'layout;
+        }
+
+        y += baseline_offset(font, size);
+    }
 }

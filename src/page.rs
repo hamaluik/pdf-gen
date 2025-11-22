@@ -53,6 +53,7 @@ pub struct ImageLayout {
 }
 
 /// The types of content that can be rendered on the page
+#[derive(Debug)]
 pub enum PageContents {
     /// A block of text (broken into spans)
     Text(Vec<SpanLayout>),
@@ -64,6 +65,7 @@ pub enum PageContents {
 }
 
 /// A reference to page via its Id or 0-based page index
+#[derive(Debug)]
 pub enum PageLinkReference {
     /// Refer to a page by it's Id (resilient to page re-ordering)
     ById(Id<Page>),
@@ -75,6 +77,7 @@ pub enum PageLinkReference {
 
 /// An annotated region on the page that when clicked on, will navigate to the
 /// given page index
+#[derive(Debug)]
 pub struct IntraDocumentLink {
     /// The bounding box for the link
     pub position: Rect,
@@ -84,6 +87,7 @@ pub struct IntraDocumentLink {
 }
 
 /// A page in the document
+#[derive(Debug)]
 pub struct Page {
     /// The size of the page
     pub media_box: Rect,
@@ -378,4 +382,27 @@ pub mod pagesize {
     pub const A4: (Pt, Pt) = (Pt(210.0 * 72.0 / 25.4), Pt(297.0 * 72.0 / 25.4));
     pub const A5: (Pt, Pt) = (Pt(148.0 * 72.0 / 25.4), Pt(210.0 * 72.0 / 25.4));
     pub const A6: (Pt, Pt) = (Pt(105.0 * 72.0 / 25.4), Pt(148.0 * 72.0 / 25.4));
+
+    pub trait PageOrientation {
+        fn portrait(self) -> Self;
+        fn landscape(self) -> Self;
+    }
+
+    impl PageOrientation for PageSize {
+        fn portrait(self) -> Self {
+            if self.0 <= self.1 {
+                self
+            } else {
+                (self.1, self.0)
+            }
+        }
+
+        fn landscape(self) -> PageSize {
+            if self.0 >= self.1 {
+                self
+            } else {
+                (self.1, self.0)
+            }
+        }
+    }
 }
