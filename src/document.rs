@@ -8,7 +8,7 @@ use crate::{
     OutlineEntry, PDFError,
 };
 use id_arena::{Arena, Id};
-use pdf_writer::{Finish, PdfWriter, Ref};
+use pdf_writer::{Finish, Pdf, Ref};
 use std::{cell::RefCell, io::Write, rc::Rc};
 
 #[derive(Default)]
@@ -88,7 +88,7 @@ impl Document {
     /// Get the page Id of a page at the given index. Returns [None] if
     /// `page_index >= self.page_order.len()`.
     pub fn id_of_page_index(&self, page_index: usize) -> Option<Id<Page>> {
-        self.page_order.get(page_index).map(|i| *i)
+        self.page_order.get(page_index).copied()
     }
 
     /// Add a font to the document structure. Note that fonts are stored "globally" within
@@ -145,7 +145,7 @@ impl Document {
         let catalog_id = refs.gen(RefType::Catalog);
         let page_tree_id = refs.gen(RefType::PageTree);
 
-        let mut writer = PdfWriter::new();
+        let mut writer = Pdf::new();
         if let Some(info) = info {
             info.write(&mut refs, &mut writer);
         }

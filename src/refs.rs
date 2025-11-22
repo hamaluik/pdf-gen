@@ -17,6 +17,7 @@ pub(crate) enum RefType {
     ImageMask(usize),
     Outlines,
     OutlineEntry(usize),
+    Annotation(usize, usize), // (page_index, annotation_index)
 }
 
 pub(crate) struct ObjectReferences {
@@ -44,7 +45,7 @@ impl ObjectReferences {
     }
 
     pub(crate) fn get(&self, ref_type: RefType) -> Option<Ref> {
-        self.refs.get(&ref_type).map(Clone::clone)
+        self.refs.get(&ref_type).copied()
     }
 
     pub(crate) fn gen(&mut self, ref_type: RefType) -> Ref {

@@ -19,6 +19,10 @@ pub enum PDFError {
     /// [usvg] failed to parse the image
     Svg(#[from] usvg::Error),
 
+    #[error("SVG conversion error: {0}")]
+    /// [svg2pdf] failed to convert the SVG
+    SvgConversionError(String),
+
     #[error("The page has not been allocated to the document page arena (the referenced page is missing)")]
     PageMissing,
 }

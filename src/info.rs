@@ -1,5 +1,5 @@
 use crate::refs::{ObjectReferences, RefType};
-use pdf_writer::{Date as PDate, PdfWriter, TextStr};
+use pdf_writer::{Date as PDate, Pdf, TextStr};
 
 /// General document metatdata such as title, author, etc
 #[derive(Default, Debug, Clone)]
@@ -45,7 +45,7 @@ impl Info {
         self
     }
 
-    pub(crate) fn write(&self, refs: &mut ObjectReferences, writer: &mut PdfWriter) {
+    pub(crate) fn write(&self, refs: &mut ObjectReferences, writer: &mut Pdf) {
         let id = refs.gen(RefType::Info);
         let mut info = writer.document_info(id);
 

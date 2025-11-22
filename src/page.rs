@@ -7,7 +7,7 @@ use crate::refs::{ObjectReferences, RefType};
 use crate::{units::*, PDFError};
 use id_arena::{Arena, Id};
 use pdf_writer::{Content, Finish};
-use pdf_writer::{Name, PdfWriter};
+use pdf_writer::{Name, Pdf, Ref};
 use std::io::Write;
 
 pub use self::pagesize::PageSize;
@@ -277,10 +277,10 @@ impl Page {
         &self,
         refs: &mut ObjectReferences,
         page_index: usize,
-        page_order: &Vec<Id<Page>>,
+        page_order: &[Id<Page>],
         fonts: &Arena<Font>,
         images: &Arena<Image>,
-        writer: &mut PdfWriter,
+        writer: &mut Pdf,
     ) -> Result<(), PDFError> {
         // unwrap is ok, because we SHOULD panic if this page index doesn't already exist
         // as the references are managed by the library (specifically, Document::write)
@@ -290,33 +290,33 @@ impl Page {
         page.art_box(self.content_box.into());
         page.parent(refs.get(RefType::PageTree).unwrap());
 
+        // collect annotation data for later writing
+        let mut annotation_data: Vec<(Ref, Rect, Ref)> = Vec::new();
         if !self.links.is_empty() {
-            let mut annotations = page.annotations();
-            for link in self.links.iter() {
-                // convert link target to page_order index for ref lookup
-                let page_ref = match link.page {
-                    PageLinkReference::ById(id) => {
-                        // find the position of this arena ID in page_order
-                        page_order
-                            .iter()
-                            .position(|&page_id| page_id == id)
-                            .ok_or(PDFError::PageMissing)?
-                    }
+            // generate refs for all annotations
+            let annotation_refs: Vec<Ref> = self
+                .links
+                .iter()
+                .map(|_| refs.gen(RefType::Annotation(page_index, annotation_data.len())))
+                .collect();
+
+            // set annotation refs on the page
+            page.annotations(annotation_refs.iter().copied());
+
+            // collect data needed to write annotations after finishing the page
+            for (link, annot_ref) in self.links.iter().zip(annotation_refs.iter()) {
+                let target_page_ref = match link.page {
+                    PageLinkReference::ById(id) => page_order
+                        .iter()
+                        .position(|&page_id| page_id == id)
+                        .ok_or(PDFError::PageMissing)?,
                     PageLinkReference::ByIndex(idx) => idx,
                 };
-
-                let mut annotation = annotations.push();
-                annotation.subtype(pdf_writer::types::AnnotationType::Link);
-                annotation.rect(link.position.into());
-                annotation.flags(pdf_writer::types::AnnotationFlags::INVISIBLE);
-                annotation.border(0.0, 0.0, 0.0, None);
-                annotation.color_transparent();
-                annotation
-                    .action()
-                    .action_type(pdf_writer::types::ActionType::GoTo)
-                    .destination_direct()
-                    .page(refs.get(RefType::Page(page_ref)).unwrap())
-                    .fit();
+                annotation_data.push((
+                    *annot_ref,
+                    link.position,
+                    refs.get(RefType::Page(target_page_ref)).unwrap(),
+                ));
             }
         }
 
@@ -342,6 +342,22 @@ impl Page {
         let content_id = refs.gen(RefType::ContentForPage(page_index));
         page.contents(content_id);
         page.finish();
+
+        // write annotations after finishing the page
+        for (annot_ref, position, target_page_ref) in annotation_data {
+            let mut annotation = writer.annotation(annot_ref);
+            annotation.subtype(pdf_writer::types::AnnotationType::Link);
+            annotation.rect(position.into());
+            annotation.flags(pdf_writer::types::AnnotationFlags::INVISIBLE);
+            annotation.border(0.0, 0.0, 0.0, None);
+            annotation.color_transparent();
+            annotation
+                .action()
+                .action_type(pdf_writer::types::ActionType::GoTo)
+                .destination()
+                .page(target_page_ref)
+                .fit();
+        }
 
         let rendered = self.render(fonts)?;
         let compressed = miniz_oxide::deflate::compress_to_vec_zlib(

@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use pdf_writer::{types::OutlineItemFlags, Finish, PdfWriter, TextStr};
+use pdf_writer::{types::OutlineItemFlags, Finish, Pdf, TextStr};
 
 use crate::refs::{ObjectReferences, RefType};
 
@@ -65,25 +65,20 @@ impl Outline {
         ret
     }
 
-    fn generate_entry_ids(
-        &self,
-        refs: &mut ObjectReferences,
-        entries: &[Rc<RefCell<OutlineEntry>>],
-    ) {
+    fn generate_entry_ids(refs: &mut ObjectReferences, entries: &[Rc<RefCell<OutlineEntry>>]) {
         for entry in entries {
             refs.gen(RefType::OutlineEntry(entry.borrow().index));
-            self.generate_entry_ids(refs, &entry.borrow().children.as_slice());
+            Self::generate_entry_ids(refs, entry.borrow().children.as_slice());
         }
     }
 
     fn write_outline_entries(
-        &self,
         entries: &[Rc<RefCell<OutlineEntry>>],
         refs: &mut ObjectReferences,
-        writer: &mut PdfWriter,
+        writer: &mut Pdf,
     ) {
         for (i, entry) in entries.iter().enumerate() {
-            self.write_outline_entries(entry.borrow().children.as_slice(), refs, writer);
+            Self::write_outline_entries(entry.borrow().children.as_slice(), refs, writer);
 
             let mut item = writer.outline_item(
                 refs.get(RefType::OutlineEntry(entry.borrow().index))
@@ -91,7 +86,7 @@ impl Outline {
             );
 
             item.title(TextStr(entry.borrow().title.as_str()));
-            item.dest_direct()
+            item.dest()
                 .page(refs.get(RefType::Page(entry.borrow().page_index)).unwrap())
                 .fit();
 
@@ -121,7 +116,7 @@ impl Outline {
                 );
             }
             if !entry.borrow().children.is_empty() {
-                item.count(entry.borrow().children.len() as i32 * -1);
+                item.count(-(entry.borrow().children.len() as i32));
                 item.first(
                     refs.get(RefType::OutlineEntry(
                         entry.borrow().children.first().unwrap().borrow().index,
@@ -138,10 +133,10 @@ impl Outline {
         }
     }
 
-    pub(crate) fn write(&self, refs: &mut ObjectReferences, writer: &mut PdfWriter) {
+    pub(crate) fn write(&self, refs: &mut ObjectReferences, writer: &mut Pdf) {
         // generate IDs for everything
         let outlines_id = refs.gen(RefType::Outlines);
-        self.generate_entry_ids(refs, self.entries.as_slice());
+        Self::generate_entry_ids(refs, self.entries.as_slice());
 
         // write the root outline
         let mut outline = writer.outline(outlines_id);
@@ -161,6 +156,6 @@ impl Outline {
         }
         outline.finish();
 
-        self.write_outline_entries(self.entries.as_slice(), refs, writer);
+        Self::write_outline_entries(self.entries.as_slice(), refs, writer);
     }
 }

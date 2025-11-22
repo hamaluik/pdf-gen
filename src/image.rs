@@ -4,7 +4,7 @@ use crate::{
 };
 use image::{ColorType, DynamicImage};
 use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
-use pdf_writer::{Filter, Finish, PdfWriter};
+use pdf_writer::{Filter, Finish, Pdf, Ref};
 use std::path::{Path, PathBuf};
 use usvg::Tree;
 
@@ -24,7 +24,7 @@ pub enum ImageType {
     /// A raster image
     Raster(RasterImageType),
     /// A parsed SVG
-    SVG(Tree),
+    SVG(Box<Tree>),
 }
 
 /// An image with a corresponding width and height. Images may be raster images
@@ -92,16 +92,14 @@ impl Image {
     /// Creates a vector file from raw bytes, assuming the bytes represent
     /// an `SVG`
     pub fn new_svg(data: &[u8]) -> Result<Image, PDFError> {
-        let opts = usvg::Options {
-            ..Default::default()
-        };
-        let tree = Tree::from_data(data, &opts.to_ref())?;
-        let size = tree.svg_node().size;
-        let width = size.width() as f32;
-        let height = size.height() as f32;
+        let opts = usvg::Options::default();
+        let tree = Tree::from_data(data, &opts)?;
+        let size = tree.size();
+        let width = size.width();
+        let height = size.height();
 
         Ok(Image {
-            image: ImageType::SVG(tree),
+            image: ImageType::SVG(Box::new(tree)),
             width,
             height,
         })
@@ -160,7 +158,7 @@ impl Image {
     fn encode_raster(&self) -> Result<EncodeOutput, PDFError> {
         match &self.image {
             ImageType::Raster(RasterImageType::DirectlyEmbeddableJpeg(path)) => {
-                let bytes = std::fs::read(&path)?;
+                let bytes = std::fs::read(path)?;
                 Ok(EncodeOutput {
                     filter: Filter::DctDecode,
                     bytes,
@@ -192,7 +190,7 @@ impl Image {
         &self,
         refs: &mut ObjectReferences,
         image_index: usize,
-        writer: &mut PdfWriter,
+        writer: &mut Pdf,
     ) -> Result<(), PDFError> {
         let id = refs.gen(RefType::Image(image_index));
 
@@ -229,9 +227,28 @@ impl Image {
                 }
             }
             ImageType::SVG(tree) => {
-                let next_id =
-                    svg2pdf::convert_tree_into(tree, svg2pdf::Options::default(), writer, id);
-                refs.set_next_id(next_id);
+                // convert SVG to a PDF chunk
+                let (chunk, svg_ref) =
+                    svg2pdf::to_chunk(tree, svg2pdf::ConversionOptions::default())
+                        .map_err(|e| PDFError::SvgConversionError(e.to_string()))?;
+
+                // renumber the chunk refs to start from our current ref allocation
+                // the `id` we generated should map to the SVG's root XObject ref
+                let start_ref = id.get();
+                let renumbered = chunk.renumber(|old_ref| {
+                    if old_ref == svg_ref {
+                        id
+                    } else {
+                        Ref::new(start_ref + old_ref.get() - svg_ref.get())
+                    }
+                });
+
+                // update refs to account for all new objects
+                let max_ref = renumbered.refs().map(|r| r.get()).max().unwrap_or(id.get());
+                refs.set_next_id(Ref::new(max_ref + 1));
+
+                // extend the writer with the SVG chunk
+                writer.extend(&renumbered);
             }
         }
 

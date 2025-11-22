@@ -496,8 +496,7 @@ pub fn layout_text_natural(
                     }
                     // truncate the break point span's text if needed
                     if let Some(last_span) = spans.last_mut() {
-                        let truncated: String =
-                            last_span.text.chars().take(bp.char_idx).collect();
+                        let truncated: String = last_span.text.chars().take(bp.char_idx).collect();
                         last_span.text = truncated;
                     }
 
@@ -509,13 +508,10 @@ pub fn layout_text_natural(
                     // check for vertical overflow
                     if y < bounding_box.y1 + descent {
                         // return everything from break point onwards
-                        let remaining: String =
-                            span_chars[bp.input_char_idx..].iter().collect();
+                        let remaining: String = span_chars[bp.input_char_idx..].iter().collect();
                         text.drain(..bp.input_idx);
-                        if !remaining.is_empty() || !text.is_empty() {
-                            if !remaining.is_empty() {
-                                text.insert(0, (remaining, colour, font));
-                            }
+                        if !remaining.is_empty() {
+                            text.insert(0, (remaining, colour, font));
                         }
                         break 'inputspans;
                     }
@@ -634,16 +630,16 @@ pub fn width_of_text(text: &str, font: &Font, size: Pt) -> Pt {
         .sum()
 }
 
-pub fn layout_text_spring<'w>(
+pub fn layout_text_spring(
     document: &Document,
     page: &mut Page,
     font_id: Id<Font>,
     size: Pt,
-    text: &'w str,
+    text: &str,
     bounding_box: Rect,
 ) {
-    struct Word<'w> {
-        word: &'w str,
+    struct Word<'a> {
+        word: &'a str,
         width: Pt,
     }
 

@@ -6,7 +6,7 @@ use id_arena::Id;
 use owned_ttf_parser::{AsFaceRef, OwnedFace};
 use pdf_writer::{
     types::{FontFlags, SystemInfo},
-    Finish, Name, PdfWriter, Ref, Str,
+    Finish, Name, Pdf, Ref, Str,
 };
 use std::collections::HashMap;
 
@@ -98,12 +98,7 @@ impl Font {
         self.face.as_face_ref().weight().to_number()
     }
 
-    fn write_cid(
-        &self,
-        refs: &mut ObjectReferences,
-        font_index: usize,
-        writer: &mut PdfWriter,
-    ) -> Ref {
+    fn write_cid(&self, refs: &mut ObjectReferences, font_index: usize, writer: &mut Pdf) -> Ref {
         let font_descriptor_id = self.write_descriptor(refs, font_index, writer);
 
         let id = refs.gen(RefType::CidFont(font_index));
@@ -146,8 +141,8 @@ impl Font {
 
         // TODO: compress with ranges as well
         let first = id_widths.first().expect("font has at least 1 glyph in it");
-        let mut start_cid: u16 = (*first).0;
-        let mut current_widths: Vec<f32> = vec![(*first).1];
+        let mut start_cid: u16 = first.0;
+        let mut current_widths: Vec<f32> = vec![first.1];
         for (cid, width) in id_widths.into_iter().skip(1) {
             if (cid - start_cid) as usize > current_widths.len() {
                 // we need a new block!
@@ -175,7 +170,7 @@ impl Font {
         &self,
         refs: &mut ObjectReferences,
         font_index: usize,
-        writer: &mut PdfWriter,
+        writer: &mut Pdf,
     ) -> Ref {
         let id = refs.gen(RefType::FontData(font_index));
 
@@ -190,7 +185,7 @@ impl Font {
         &self,
         refs: &mut ObjectReferences,
         font_index: usize,
-        writer: &mut PdfWriter,
+        writer: &mut Pdf,
     ) -> Ref {
         let font_data_stream_id = self.write_font_data(refs, font_index, writer);
 
@@ -314,7 +309,7 @@ impl Font {
         &self,
         refs: &mut ObjectReferences,
         font_index: usize,
-        writer: &mut PdfWriter,
+        writer: &mut Pdf,
     ) -> Ref {
         let id = refs.gen(RefType::ToUnicode(font_index));
 
@@ -358,7 +353,7 @@ endcodespacerange
         for block in cmap_blocks.into_iter() {
             map.push_str(&format!("{} beginbfchar\n", block.len()));
             for (id, ch) in block.into_iter() {
-                let ch: u32 = ch.try_into().expect("can convert character to u32");
+                let ch: u32 = ch.into();
                 map.push_str(&format!("<{id:04x}> <{:04x}>\n", ch));
             }
             map.push_str("endbfchar\n");
@@ -376,7 +371,7 @@ endcodespacerange
         id
     }
 
-    pub(crate) fn write(&self, refs: &mut ObjectReferences, id: Id<Font>, writer: &mut PdfWriter) {
+    pub(crate) fn write(&self, refs: &mut ObjectReferences, id: Id<Font>, writer: &mut Pdf) {
         let font_index = id.index();
         let font_id = refs.gen(RefType::Font(font_index));
         let cid_font_id = self.write_cid(refs, font_index, writer);
