@@ -72,8 +72,13 @@ pub use usvg as usvg_crate;
 mod colour;
 pub use colour::*;
 
+pub(crate) mod content;
+
 mod document;
 pub use document::*;
+
+mod error;
+pub use error::*;
 
 mod font;
 pub use font::*;
@@ -90,19 +95,22 @@ pub use info::*;
 /// Utility functions and structures to layout objects (most text) on pages
 pub mod layout;
 
+mod outline;
+pub use outline::*;
+
 mod page;
 pub use page::*;
+
+/// Pre-defined page sizes for common usage
+pub mod pagesize;
 
 mod rect;
 pub use rect::*;
 
 pub(crate) mod refs;
 
+mod transform;
+pub use transform::*;
+
 mod units;
 pub use units::*;
-
-mod error;
-pub use error::*;
-
-mod outline;
-pub use outline::*;

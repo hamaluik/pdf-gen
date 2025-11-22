@@ -1,17 +1,16 @@
 use crate::colour::Colour;
+use crate::content::render_contents;
 use crate::font::Font;
 use crate::form_xobject::{FormXObject, FormXObjectLayout};
 use crate::image::Image;
 use crate::layout::Margins;
+use crate::pagesize::PageSize;
 use crate::rect::Rect;
 use crate::refs::{ObjectReferences, RefType};
 use crate::{units::*, PDFError};
 use id_arena::{Arena, Id};
 use pdf_writer::{Content, Finish};
 use pdf_writer::{Name, Pdf, Ref};
-use std::io::Write;
-
-pub use self::pagesize::PageSize;
 
 /// What font to use for a given span of text
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -22,11 +21,6 @@ pub struct SpanFont {
     pub size: Pt,
 }
 
-impl SpanFont {
-    fn font_index(&self) -> usize {
-        self.id.index()
-    }
-}
 
 /// A section of text to be laid out onto a page
 #[derive(Clone, PartialEq, Debug)]
@@ -184,114 +178,8 @@ impl Page {
         });
     }
 
-    #[allow(clippy::write_with_newline)]
     fn render(&self, fonts: &Arena<Font>) -> Result<Vec<u8>, std::io::Error> {
-        if self.contents.is_empty() {
-            return Ok(Vec::default());
-        }
-        let mut content: Vec<u8> = Vec::default();
-
-        'contents: for page_content in self.contents.iter() {
-            match page_content {
-                PageContents::Text(spans) => {
-                    if spans.is_empty() {
-                        continue 'contents;
-                    }
-
-                    write!(&mut content, "q\n")?;
-                    // unwrap is safe, as we know spans isn't empty
-                    let mut current_font: SpanFont = spans.first().unwrap().font;
-                    let mut current_colour: Colour = spans.first().unwrap().colour;
-
-                    write!(
-                        &mut content,
-                        "/F{} {} Tf\n",
-                        current_font.font_index(),
-                        current_font.size
-                    )?;
-                    match current_colour {
-                        Colour::RGB { r, g, b } => write!(&mut content, "{r} {g} {b} rg\n")?,
-                        Colour::CMYK { c, m, y, k } => write!(&mut content, "{c} {m} {y} {k} k\n")?,
-                        Colour::Grey { g } => write!(&mut content, "{g} g\n")?,
-                    }
-
-                    for span in spans.iter() {
-                        if span.font != current_font {
-                            current_font = span.font;
-                            write!(
-                                &mut content,
-                                "/F{} {} Tf\n",
-                                current_font.font_index(),
-                                current_font.size
-                            )?;
-                        }
-                        if span.colour != current_colour {
-                            current_colour = span.colour;
-                            match current_colour {
-                                Colour::RGB { r, g, b } => {
-                                    write!(&mut content, "{r} {g} {b} rg\n")?
-                                }
-                                Colour::CMYK { c, m, y, k } => {
-                                    write!(&mut content, "{c} {m} {y} {k} k\n")?
-                                }
-                                Colour::Grey { g } => write!(&mut content, "{g} g\n")?,
-                            }
-                        }
-
-                        write!(&mut content, "BT\n")?;
-                        write!(&mut content, "{} {} Td\n", span.coords.0, span.coords.1)?;
-                        write!(&mut content, "<")?;
-                        for ch in span.text.chars() {
-                            write!(
-                                &mut content,
-                                "{:04x}",
-                                fonts[current_font.id].glyph_id(ch).unwrap_or_else(|| fonts
-                                    [current_font.id]
-                                    .replacement_glyph_id()
-                                    //.expect("Font has replacement glyph")
-                                    .unwrap_or_else(|| fonts[current_font.id]
-                                        .glyph_id('?')
-                                        .expect("Font has '?' glyph!")))
-                            )?;
-                        }
-                        write!(&mut content, "> Tj\n")?;
-                        write!(&mut content, "ET\n")?;
-                    }
-                    write!(&mut content, "Q\n")?;
-                }
-                PageContents::Image(image) => {
-                    write!(&mut content, "q\n")?;
-                    write!(
-                        &mut content,
-                        "{} 0 0 {} {} {} cm\n",
-                        image.position.x2 - image.position.x1,
-                        image.position.y2 - image.position.y1,
-                        image.position.x1,
-                        image.position.y1
-                    )?;
-                    write!(&mut content, "/I{} Do\n", image.image_index)?;
-                    write!(&mut content, "Q\n")?;
-                }
-                PageContents::RawContent(c) => {
-                    write!(&mut content, "q\n")?;
-                    content.write_all(c.as_slice())?;
-                    write!(&mut content, "\nQ\n")?;
-                }
-                PageContents::FormXObject(layout) => {
-                    let t = &layout.transform;
-                    write!(&mut content, "q\n")?;
-                    write!(
-                        &mut content,
-                        "{} {} {} {} {} {} cm\n",
-                        t.a, t.b, t.c, t.d, t.e, t.f
-                    )?;
-                    write!(&mut content, "/X{} Do\n", layout.xobj_id.index())?;
-                    write!(&mut content, "Q\n")?;
-                }
-            }
-        }
-
-        Ok(content)
+        render_contents(&self.contents, fonts)
     }
 
     pub(crate) fn write(
@@ -400,58 +288,3 @@ impl Page {
     }
 }
 
-/// Pre-defined page sizes for common usage
-pub mod pagesize {
-    use crate::units::*;
-
-    /// The size of a page in points
-    pub type PageSize = (Pt, Pt);
-
-    pub const LETTER: (Pt, Pt) = (Pt(8.5 * 72.0), Pt(11.0 * 72.0));
-    pub const HALF_LETTER: (Pt, Pt) = (Pt(5.5 * 72.0), Pt(8.5 * 72.0));
-    pub const JUNIOR_LEGAL: (Pt, Pt) = (Pt(5.0 * 72.0), Pt(8.0 * 72.0));
-    pub const LEGAL: (Pt, Pt) = (Pt(8.5 * 72.0), Pt(13.0 * 72.0));
-    pub const TABLOID: (Pt, Pt) = (Pt(11.0 * 72.0), Pt(17.0 * 72.0));
-    pub const LEDGER: (Pt, Pt) = (Pt(17.0 * 72.0), Pt(11.0 * 72.0));
-
-    pub const ANSI_A: (Pt, Pt) = (Pt(8.5 * 72.0), Pt(11.0 * 72.0));
-    pub const ANSI_B: (Pt, Pt) = (Pt(11.0 * 72.0), Pt(17.0 * 72.0));
-    pub const ANSI_C: (Pt, Pt) = (Pt(17.0 * 72.0), Pt(22.0 * 72.0));
-    pub const ANSI_D: (Pt, Pt) = (Pt(22.0 * 72.0), Pt(34.0 * 72.0));
-    pub const ANSI_E: (Pt, Pt) = (Pt(34.0 * 72.0), Pt(44.0 * 72.0));
-
-    pub const FOLIO: (Pt, Pt) = (Pt(12.0 * 72.0), Pt(19.0 * 72.0));
-    pub const QUARTO: (Pt, Pt) = (Pt(9.5 * 72.0), Pt(12.0 * 72.0));
-    pub const OCTAVO: (Pt, Pt) = (Pt(6.0 * 72.0), Pt(9.0 * 72.0));
-
-    pub const A0: (Pt, Pt) = (Pt(841.0 * 72.0 / 25.4), Pt(1189.0 * 72.0 / 25.4));
-    pub const A1: (Pt, Pt) = (Pt(594.0 * 72.0 / 25.4), Pt(841.0 * 72.0 / 25.4));
-    pub const A2: (Pt, Pt) = (Pt(420.0 * 72.0 / 25.4), Pt(594.0 * 72.0 / 25.4));
-    pub const A3: (Pt, Pt) = (Pt(297.0 * 72.0 / 25.4), Pt(420.0 * 72.0 / 25.4));
-    pub const A4: (Pt, Pt) = (Pt(210.0 * 72.0 / 25.4), Pt(297.0 * 72.0 / 25.4));
-    pub const A5: (Pt, Pt) = (Pt(148.0 * 72.0 / 25.4), Pt(210.0 * 72.0 / 25.4));
-    pub const A6: (Pt, Pt) = (Pt(105.0 * 72.0 / 25.4), Pt(148.0 * 72.0 / 25.4));
-
-    pub trait PageOrientation {
-        fn portrait(self) -> Self;
-        fn landscape(self) -> Self;
-    }
-
-    impl PageOrientation for PageSize {
-        fn portrait(self) -> Self {
-            if self.0 <= self.1 {
-                self
-            } else {
-                (self.1, self.0)
-            }
-        }
-
-        fn landscape(self) -> PageSize {
-            if self.0 >= self.1 {
-                self
-            } else {
-                (self.1, self.0)
-            }
-        }
-    }
-}
