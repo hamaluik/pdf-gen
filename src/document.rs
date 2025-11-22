@@ -150,13 +150,12 @@ impl Document {
             info.write(&mut refs, &mut writer);
         }
 
-        // let page_refs: Vec<Ref> = pages
-        //     .iter()
-        //     .map(|(id, _page)| refs.gen(RefType::Page(id.index())))
-        //     .collect();
+        // generate page refs keyed by page_order index (not arena index) so that
+        // bookmarks and links can reference pages by their position in the document
         let page_refs: Vec<Ref> = page_order
             .iter()
-            .map(|id| refs.gen(RefType::Page(id.index())))
+            .enumerate()
+            .map(|(i, _id)| refs.gen(RefType::Page(i)))
             .collect();
 
         writer
@@ -173,11 +172,11 @@ impl Document {
             image.write(&mut refs, i.index(), &mut writer)?;
         }
 
-        for id in page_order.iter() {
+        for (page_index, id) in page_order.iter().enumerate() {
             let page = pages.get(*id).ok_or(PDFError::PageMissing)?;
             page.write(
                 &mut refs,
-                id.index(),
+                page_index,
                 &page_order,
                 &fonts,
                 &images,

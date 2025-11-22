@@ -293,11 +293,16 @@ impl Page {
         if !self.links.is_empty() {
             let mut annotations = page.annotations();
             for link in self.links.iter() {
+                // convert link target to page_order index for ref lookup
                 let page_ref = match link.page {
-                    PageLinkReference::ById(id) => id.index(),
-                    PageLinkReference::ByIndex(idx) => {
-                        page_order.get(idx).ok_or(PDFError::PageMissing)?.index()
+                    PageLinkReference::ById(id) => {
+                        // find the position of this arena ID in page_order
+                        page_order
+                            .iter()
+                            .position(|&page_id| page_id == id)
+                            .ok_or(PDFError::PageMissing)?
                     }
+                    PageLinkReference::ByIndex(idx) => idx,
                 };
 
                 let mut annotation = annotations.push();
