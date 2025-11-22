@@ -1,5 +1,6 @@
 use crate::colour::Colour;
 use crate::font::Font;
+use crate::form_xobject::{FormXObject, FormXObjectLayout};
 use crate::image::Image;
 use crate::layout::Margins;
 use crate::rect::Rect;
@@ -62,6 +63,8 @@ pub enum PageContents {
     /// Raw content, typically rendered by [pdf_writer::Content]. The
     /// content **MUST** be **UNCOMPRESSED**.
     RawContent(Vec<u8>),
+    /// A Form XObject placed with a transformation
+    FormXObject(FormXObjectLayout),
 }
 
 /// A reference to page via its Id or 0-based page index
@@ -156,6 +159,13 @@ impl Page {
     {
         self.contents
             .push(PageContents::RawContent(content.into_iter().collect()));
+    }
+
+    /// Add a Form XObject to the page with the given transformation.
+    /// Form XObjects are reusable content containers that can be placed with
+    /// transformations (scale, rotate, translate).
+    pub fn add_form_xobject(&mut self, layout: FormXObjectLayout) {
+        self.contents.push(PageContents::FormXObject(layout));
     }
 
     /// Add a link on the page that when clicked will navigate to the given page index
@@ -267,6 +277,17 @@ impl Page {
                     content.write_all(c.as_slice())?;
                     write!(&mut content, "\nQ\n")?;
                 }
+                PageContents::FormXObject(layout) => {
+                    let t = &layout.transform;
+                    write!(&mut content, "q\n")?;
+                    write!(
+                        &mut content,
+                        "{} {} {} {} {} {} cm\n",
+                        t.a, t.b, t.c, t.d, t.e, t.f
+                    )?;
+                    write!(&mut content, "/X{} Do\n", layout.xobj_id.index())?;
+                    write!(&mut content, "Q\n")?;
+                }
             }
         }
 
@@ -280,6 +301,7 @@ impl Page {
         page_order: &[Id<Page>],
         fonts: &Arena<Font>,
         images: &Arena<Image>,
+        form_xobjects: &Arena<FormXObject>,
         writer: &mut Pdf,
     ) -> Result<(), PDFError> {
         // unwrap is ok, because we SHOULD panic if this page index doesn't already exist
@@ -334,6 +356,12 @@ impl Page {
             resource_xobjects.pair(
                 Name(format!("I{i}").as_bytes()),
                 refs.get(RefType::Image(i)).unwrap(),
+            );
+        }
+        for (i, _) in form_xobjects.iter().enumerate() {
+            resource_xobjects.pair(
+                Name(format!("X{i}").as_bytes()),
+                refs.get(RefType::FormXObject(i)).unwrap(),
             );
         }
         resource_xobjects.finish();

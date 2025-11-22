@@ -1,4 +1,4 @@
-//! A mid-level, opionated library for generating PDF documents
+//! A mid-level, opinionated library for generating PDF documents
 //!
 //! Provides abstractions over [pdf-writer](https://crates.io/crates/pdf-writer) while including
 //! features and utilities such as:
@@ -6,6 +6,8 @@
 //! * Unicode font embedding
 //! * Raster and SVG image embedding
 //! * Page generation with laid out text spans, images, or raw PDF contents
+//! * Form XObjects for reusable content with transformation support
+//! * Document bookmarks and intra-document navigation links
 //! * Document metadata
 //! * Compressed streams where possible
 //! * Basic text layout utilities
@@ -31,7 +33,7 @@
 //!
 //! // create a page that is US Letter paper sized (8.5 x 11 inches)
 //! // with a margin around all edges of the page of 0.5 inches
-//! let mut page = Page::new(pagesize::LETTER, Some(Margins::all(In(0.5).into())));
+//! let mut page = Page::new(pagesize::LETTER, Some(Margins::all(In(0.5))));
 //!
 //! // calculate where we should place text to have it at the top-left of the page within the margins
 //! let start = layout::baseline_start(&page, &doc.fonts[fira_mono], Pt(16.0));
@@ -75,6 +77,9 @@ pub use document::*;
 
 mod font;
 pub use font::*;
+
+mod form_xobject;
+pub use form_xobject::*;
 
 mod image;
 pub use self::image::*;

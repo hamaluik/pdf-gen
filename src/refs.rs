@@ -18,6 +18,7 @@ pub(crate) enum RefType {
     Outlines,
     OutlineEntry(usize),
     Annotation(usize, usize), // (page_index, annotation_index)
+    FormXObject(usize),
 }
 
 pub(crate) struct ObjectReferences {

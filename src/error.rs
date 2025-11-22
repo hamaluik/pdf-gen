@@ -8,19 +8,19 @@ pub enum PDFError {
     Io(#[from] std::io::Error),
 
     #[error(transparent)]
-    /// [ttf_parser] failed to parse the font
+    /// Font parsing failed (via `owned_ttf_parser`)
     FaceParsingError(#[from] owned_ttf_parser::FaceParsingError),
 
     #[error(transparent)]
-    /// [image] failed to parse the image
+    /// Image parsing failed (via the `image` crate)
     Image(#[from] image::ImageError),
 
     #[error(transparent)]
-    /// [usvg] failed to parse the image
+    /// SVG parsing failed (via `usvg`)
     Svg(#[from] usvg::Error),
 
     #[error("SVG conversion error: {0}")]
-    /// [svg2pdf] failed to convert the SVG
+    /// SVG to PDF conversion failed (via `svg2pdf`)
     SvgConversionError(String),
 
     #[error("The page has not been allocated to the document page arena (the referenced page is missing)")]

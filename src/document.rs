@@ -1,5 +1,6 @@
 use crate::{
     font::Font,
+    form_xobject::FormXObject,
     image::Image,
     info::Info,
     outline::Outline,
@@ -20,6 +21,7 @@ pub struct Document {
     pub page_order: Vec<Id<Page>>,
     pub fonts: Arena<Font>,
     pub images: Arena<Image>,
+    pub form_xobjects: Arena<FormXObject>,
     pub outline: Outline,
 }
 
@@ -107,6 +109,13 @@ impl Document {
         self.images.alloc(image)
     }
 
+    /// Add a Form XObject to the document structure. Form XObjects are reusable content
+    /// containers that can be placed on pages with transformations. The returned value
+    /// is the ID of the form, which can be used to place it on pages.
+    pub fn add_form_xobject(&mut self, form: FormXObject) -> Id<FormXObject> {
+        self.form_xobjects.alloc(form)
+    }
+
     /// Add a bookmark in the document outline pointing to a page with a given index. For now,
     /// this will always fit the entire page into view when navigating to the bookmark.
     pub fn add_bookmark<S: ToString>(
@@ -137,6 +146,7 @@ impl Document {
             page_order,
             fonts,
             images,
+            form_xobjects,
             outline,
         } = self;
 
@@ -172,6 +182,23 @@ impl Document {
             image.write(&mut refs, i.index(), &mut writer)?;
         }
 
+        // pre-generate refs for all form xobjects before writing any of them
+        // this allows form xobjects to reference each other
+        for (i, _) in form_xobjects.iter() {
+            refs.gen(RefType::FormXObject(i.index()));
+        }
+
+        for (i, xobj) in form_xobjects.iter() {
+            xobj.write_with_ref(
+                &refs,
+                i.index(),
+                &fonts,
+                &images,
+                &form_xobjects,
+                &mut writer,
+            )?;
+        }
+
         for (page_index, id) in page_order.iter().enumerate() {
             let page = pages.get(*id).ok_or(PDFError::PageMissing)?;
             page.write(
@@ -180,6 +207,7 @@ impl Document {
                 &page_order,
                 &fonts,
                 &images,
+                &form_xobjects,
                 &mut writer,
             )?;
         }
