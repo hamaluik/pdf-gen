@@ -228,7 +228,7 @@ impl Font {
             x2: sum_width as f32 * scaling,
             y2: max_height as f32 * scaling,
         });
-        descriptor.italic_angle(self.face.as_face_ref().italic_angle().unwrap_or_default());
+        descriptor.italic_angle(self.face.as_face_ref().italic_angle());
         descriptor.ascent(self.face.as_face_ref().ascender() as f32 * scaling);
         descriptor.descent(self.face.as_face_ref().descender() as f32 * scaling);
         descriptor.leading(self.face.as_face_ref().line_gap() as f32 * scaling);
