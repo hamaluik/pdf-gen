@@ -13,6 +13,8 @@ pub struct Info {
     /// Keywords for the document. No prescribed format, though Adobe Acrobat suggests
     /// using a comma separated list of keywords
     pub keywords: Option<String>,
+    /// The application that created the document. Defaults to pdf-gen if not set.
+    pub creator: Option<String>,
 }
 
 impl Info {
@@ -45,6 +47,13 @@ impl Info {
         self
     }
 
+    /// Set the creator application of the info block, modifying `self`.
+    /// If not set, defaults to "pdf-gen vX.X.X".
+    pub fn creator<S: ToString>(&mut self, creator: S) -> &mut Self {
+        self.creator = Some(creator.to_string());
+        self
+    }
+
     pub(crate) fn write(&self, refs: &mut ObjectReferences, writer: &mut Pdf) {
         let id = refs.gen(RefType::Info);
         let mut info = writer.document_info(id);
@@ -61,11 +70,11 @@ impl Info {
         if let Some(keywords) = &self.keywords {
             info.keywords(TextStr(keywords.as_str()));
         }
-        info.creator(TextStr(concat!(
-            env!("CARGO_PKG_NAME"),
-            " v",
-            env!("CARGO_PKG_VERSION")
-        )));
+
+        // use custom creator if provided, otherwise default to pdf-gen version
+        let default_creator = concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION"));
+        let creator_str = self.creator.as_deref().unwrap_or(default_creator);
+        info.creator(TextStr(creator_str));
 
         use chrono::prelude::*;
         let now = Local::now();
