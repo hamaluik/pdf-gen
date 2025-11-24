@@ -9,12 +9,18 @@ use std::path::{Path, PathBuf};
 use usvg::Tree;
 
 /// A raster image. 24-bit JPEG images may be embedded directly, whereas
-/// all other image types will be re-encoded as PNGs with optional transparency
-/// masks.
+/// all other image types are converted to RGB8 and compressed with zlib for
+/// embedding. Images with alpha channels have their transparency extracted
+/// into a separate soft mask.
+///
+/// During conversion, the dimensions used in the PDF are taken from the
+/// converted RGB8 image rather than the original, ensuring the byte layout
+/// matches what PDF readers expect (avoiding row stride misalignment that
+/// causes garbled rendering).
 pub enum RasterImageType {
     /// A JPEG which may be embedded directly in the file, from disk
     DirectlyEmbeddableJpeg(PathBuf),
-    /// A generic image which will be rendered as a PNG when writing the PDF
+    /// A generic image which will be converted to RGB8 when writing the PDF
     Image(DynamicImage),
 }
 
@@ -55,6 +61,10 @@ struct EncodeOutput {
     filter: Filter,
     bytes: Vec<u8>,
     mask: Option<Vec<u8>>,
+    /// actual width of the encoded image data (may differ from original)
+    width: u32,
+    /// actual height of the encoded image data (may differ from original)
+    height: u32,
 }
 
 impl Image {
@@ -163,6 +173,8 @@ impl Image {
                     filter: Filter::DctDecode,
                     bytes,
                     mask: None,
+                    width: self.width as u32,
+                    height: self.height as u32,
                 })
             }
             ImageType::Raster(RasterImageType::Image(image)) => {
@@ -174,12 +186,19 @@ impl Image {
                     compress_to_vec_zlib(&alphas, level)
                 });
 
-                let bytes = compress_to_vec_zlib(image.to_rgb8().as_raw(), level);
+                // use dimensions from the converted RGB8 image, not the original,
+                // to ensure the byte layout matches what the PDF reader expects
+                let rgb8 = image.to_rgb8();
+                let width = rgb8.width();
+                let height = rgb8.height();
+                let bytes = compress_to_vec_zlib(rgb8.as_raw(), level);
 
                 Ok(EncodeOutput {
                     filter: Filter::FlateDecode,
                     bytes,
                     mask,
+                    width,
+                    height,
                 })
             }
             _ => panic!("can't encode SVG as a raster!"),
@@ -200,8 +219,8 @@ impl Image {
 
                 let mut image = writer.image_xobject(id, encoded.bytes.as_slice());
                 image.filter(encoded.filter);
-                image.width(self.width as i32);
-                image.height(self.height as i32);
+                image.width(encoded.width as i32);
+                image.height(encoded.height as i32);
                 image.color_space().device_rgb();
                 image.bits_per_component(8);
 
@@ -220,8 +239,8 @@ impl Image {
                     // unwrap will always be safe as the mask id is mapped from mask to start with
                     let mut s_mask =
                         writer.image_xobject(mask_id, encoded.mask.as_ref().unwrap().as_slice());
-                    s_mask.width(self.width as i32);
-                    s_mask.height(self.height as i32);
+                    s_mask.width(encoded.width as i32);
+                    s_mask.height(encoded.height as i32);
                     s_mask.color_space().device_gray();
                     s_mask.bits_per_component(8);
                 }
