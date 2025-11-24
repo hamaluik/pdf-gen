@@ -222,18 +222,15 @@ pub fn layout_text_naive(
 
 /// Tracks a position in the text layout where we can safely break to a new line.
 ///
-/// When laying out text, we want to avoid breaking words mid-character. This struct
-/// captures enough state to "rewind" the layout process back to a previous position
-/// if we discover that the current word/token won't fit on the line.
+/// Break points are only tracked within the current input span (at whitespace positions).
+/// This simplifies the rewind logic by avoiding cross-span state.
 #[derive(Clone)]
 struct BreakPoint {
     /// index into the output spans vec where we can break
-    span_idx: usize,
-    /// character index within that span's text (break happens AFTER this index)
-    char_idx: usize,
-    /// index into the input text queue - which input span we were processing
-    input_idx: usize,
-    /// character index within the input span (where to resume from)
+    output_span_idx: usize,
+    /// character index within that output span's text
+    output_char_idx: usize,
+    /// character index within the current input span (where to resume from)
     input_char_idx: usize,
 }
 
@@ -284,10 +281,8 @@ pub fn layout_text_natural(
 
     let mut spans: Vec<SpanLayout> = Vec::with_capacity(text.len());
 
-    // tracks the most recent valid break point on the current line
-    let mut last_break: Option<BreakPoint> = None;
-    // tracks x position at start of current line (for detecting if we have any break points)
-    let mut line_start_x = start.0;
+    // tracks the most recent valid break point within the current input span
+    let mut last_break: Option<BreakPoint>;
 
     let mut input_idx = 0usize;
     'inputspans: while input_idx < text.len() {
@@ -309,16 +304,8 @@ pub fn layout_text_natural(
         // normalize newlines
         let span = span.replace("\r\n", "\n").replace('\r', "\n");
 
-        // record span boundary as a potential break point (before we start this span)
-        // but only if we're not at the start of a line
-        if x > line_start_x && !spans.is_empty() {
-            last_break = Some(BreakPoint {
-                span_idx: spans.len() - 1,
-                char_idx: spans.last().map(|s| s.text.chars().count()).unwrap_or(0),
-                input_idx,
-                input_char_idx: 0,
-            });
-        }
+        // reset break points at span boundaries - we only track breaks within the current span
+        last_break = None;
 
         let mut current_span: SpanLayout = SpanLayout {
             text: "".into(),
@@ -345,7 +332,6 @@ pub fn layout_text_natural(
                 // move to the next line
                 x = start.0;
                 y -= line_gap;
-                line_start_x = x;
                 last_break = None; // reset break points for new line
 
                 // check if we would now overflow on the bottom
@@ -399,77 +385,56 @@ pub fn layout_text_natural(
                     .unwrap_or_default() as f32;
 
             if x + hadv >= bounding_box.x2 {
-                // overflow detected - try to break at a natural boundary
+                // overflow - try to break at whitespace within current span
 
-                if let Some(ref bp) = last_break {
-                    // we have a break point - rewind to it
-                    // truncate spans back to break point
-                    while spans.len() > bp.span_idx + 1 {
+                if let Some(bp) = last_break.take() {
+                    // rewind to whitespace break point (within current span only)
+                    while spans.len() > bp.output_span_idx + 1 {
                         spans.pop();
                     }
-                    // truncate the break point span's text if needed
                     if let Some(last_span) = spans.last_mut() {
-                        let truncated: String = last_span.text.chars().take(bp.char_idx).collect();
-                        last_span.text = truncated;
+                        last_span.text = last_span.text.chars().take(bp.output_char_idx).collect();
                     }
 
                     // move to next line
                     x = start.0 + wrap_offset;
                     y -= line_gap;
-                    line_start_x = x;
 
                     // check for vertical overflow
                     if y < bounding_box.y1 + descent {
-                        // return everything from break point onwards
                         let remaining: String = span_chars[bp.input_char_idx..].iter().collect();
-                        text.drain(..bp.input_idx);
+                        text.drain(..=input_idx);
                         if !remaining.is_empty() {
                             text.insert(0, (remaining, colour, font));
                         }
                         break 'inputspans;
                     }
 
-                    // restart from break point
-                    input_idx = bp.input_idx;
-                    let (ref restart_span_orig, restart_colour, restart_font) = text[input_idx];
-                    let restart_span = restart_span_orig
-                        .replace('\t', &" ".repeat(TABSIZE))
-                        .replace("\r\n", "\n")
-                        .replace('\r', "\n");
-                    let restart_chars: Vec<char> = restart_span.chars().collect();
-
-                    // skip leading whitespace at start of new line
-                    let mut restart_ci = bp.input_char_idx;
-                    while restart_ci < restart_chars.len()
-                        && restart_chars[restart_ci].is_whitespace()
-                        && restart_chars[restart_ci] != '\n'
+                    // continue from break point (skip leading whitespace)
+                    ci = bp.input_char_idx;
+                    while ci < span_chars.len()
+                        && span_chars[ci].is_whitespace()
+                        && span_chars[ci] != '\n'
                     {
-                        restart_ci += 1;
+                        ci += 1;
                     }
 
-                    // update text queue to reflect consumed content
-                    if restart_ci < restart_chars.len() {
-                        let remaining: String = restart_chars[restart_ci..].iter().collect();
-                        text[input_idx] = (remaining, restart_colour, restart_font);
-                    } else {
-                        // consumed entire span, move to next
-                        input_idx += 1;
-                        if input_idx < text.len() {
-                            text.drain(..input_idx);
-                            input_idx = 0;
-                        }
-                    }
-
-                    last_break = None;
-                    continue 'inputspans;
+                    current_span = SpanLayout {
+                        text: "".into(),
+                        font: SpanFont {
+                            id: font_id,
+                            size: font_size,
+                        },
+                        colour,
+                        coords: (x, y),
+                    };
+                    continue 'chars;
                 } else {
-                    // no break point available - force character break (existing behavior)
+                    // no break point - force character break
                     spans.push(current_span.clone());
 
                     x = start.0 + wrap_offset;
                     y -= line_gap;
-                    line_start_x = x;
-                    last_break = None;
 
                     if y < bounding_box.y1 + descent {
                         let remaining: String = span_chars[ci..].iter().collect();
@@ -478,27 +443,25 @@ pub fn layout_text_natural(
                             text.insert(0, (remaining, colour, font));
                         }
                         break 'inputspans;
-                    } else {
-                        current_span.text.clear();
-                        current_span.text.push(ch);
-                        current_span.coords.0 = x;
-                        current_span.coords.1 = y;
-                        x += hadv;
-                        ci += 1;
-                        continue 'chars;
                     }
+
+                    current_span.text.clear();
+                    current_span.text.push(ch);
+                    current_span.coords = (x, y);
+                    x += hadv;
+                    ci += 1;
+                    continue 'chars;
                 }
             } else {
                 // no overflow - add character and track break points
                 current_span.text.push(ch);
                 x += hadv;
 
-                // record whitespace as break point (break AFTER the whitespace)
-                if ch.is_whitespace() {
+                // record whitespace as break point (within current span only)
+                if ch.is_whitespace() && ch != '\n' {
                     last_break = Some(BreakPoint {
-                        span_idx: spans.len(),
-                        char_idx: current_span.text.chars().count(),
-                        input_idx,
+                        output_span_idx: spans.len(),
+                        output_char_idx: current_span.text.chars().count(),
                         input_char_idx: ci + 1,
                     });
                 }
